@@ -1,4 +1,6 @@
 {
+  "projectName": "code-scan-docs",
+  "projectOwner": "conversadocs",
   "files": [
     "README.md"
   ],
@@ -20,7 +22,5 @@
   "contributorsPerLine": 7,
   "skipCi": true,
   "repoType": "github",
-  "repoHost": "https://github.com",
-  "projectName": "code-scan-docs",
-  "projectOwner": "conversadocs"
+  "repoHost": "https://github.com"
 }
