@@ -1,0 +1,76 @@
+name: Bug Report
+description: Report a bug or issue
+title: "[Bug]: "
+type: "Bug"
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## Description
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: Describe the bug in detail.
+    validations:
+      required: true
+
+  - type: markdown
+    attributes:
+      value: |
+        ## Steps to Reproduce
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to Reproduce
+      description: Provide the steps needed to reproduce the bug.
+      placeholder: |
+        1. Go to '...'
+        2. Click on '...'
+        3. Scroll down to '...'
+        4. See error
+    validations:
+      required: true
+
+  - type: markdown
+    attributes:
+      value: |
+        ## Expected Behavior
+
+  - type: textarea
+    id: expected_behavior
+    attributes:
+      label: Expected Behavior
+      description: What should happen instead?
+    validations:
+      required: true
+
+  - type: markdown
+    attributes:
+      value: |
+        ## Screenshots
+
+  - type: input
+    id: screenshots
+    attributes:
+      label: Screenshots
+      description: You can upload screenshots by dragging and dropping them into this field.
+      placeholder: "Attach screenshots or videos"
+    validations:
+      required: false
+
+  - type: markdown
+    attributes:
+      value: |
+        ## Additional Context
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional Context
+      description: Any other information that might be helpful.
+      placeholder: "Add additional context here..."
+    validations:
+      required: false

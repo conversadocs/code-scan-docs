@@ -1,0 +1,46 @@
+name: Feature
+description: Create a Feature
+title: "[Feature]: "
+type: "Feature"
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## Description
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: Add a description of the feature.
+    validations:
+      required: true
+
+  - type: markdown
+    attributes:
+      value: |
+        ### Functionality
+
+  - type: textarea
+    id: functions
+    attributes:
+      label: Feature Functions
+      description: Please list the functions of this feature.
+      value: |
+        - Function 1
+        - Function 2
+    validations:
+      required: true
+
+  - type: markdown
+    attributes:
+      value: |
+        ## Notes
+
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notes
+      description: Additional notes.
+    validations:
+      required: false
