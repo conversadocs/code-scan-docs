@@ -1,0 +1,46 @@
+name: Task
+description: Create a Task
+title: "[Task]: "
+type: "Task"
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## Description
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: Add a description of the task.
+    validations:
+      required: true
+
+  - type: markdown
+    attributes:
+      value: |
+        ### Acceptance Criteria
+
+  - type: textarea
+    id: acceptance_criteria
+    attributes:
+      label: Acceptance Criteria
+      description: Please list the acceptance criteria using the checklist format.
+      value: |
+        - [ ] AC 1
+        - [ ] AC 2
+    validations:
+      required: true
+
+  - type: markdown
+    attributes:
+      value: |
+        ## Notes
+
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notes
+      description: Additional notes.
+    validations:
+      required: false
