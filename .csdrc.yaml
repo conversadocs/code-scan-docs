@@ -1,0 +1,62 @@
+# CSD (Code Scan Docs) Configuration File (.csdrc.yaml)
+# This file configures how csd analyzes your code
+
+# Output directory for generated reports and documentation
+output_dir: "output"
+
+# LLM Configuration
+llm:
+  provider: "ollama"
+  base_url: "http://localhost:11434"
+  model: "deepseek-coder"
+  timeout_seconds: 30
+
+# Scanning Configuration
+scanning:
+  # Patterns to ignore during scanning (glob patterns)
+  ignore_patterns:
+    - "target/"
+    - "node_modules/"
+    - ".git/"
+    - "*.log"
+    - ".csd_cache/"
+    - "build/"
+    - "dist/"
+    - "*.md"
+    - "LICENSE"
+
+  # Whether to include hidden files/directories
+  include_hidden: false
+
+  # Maximum file size to analyze (in MB)
+  max_file_size_mb: 10
+
+# Plugin Configuration
+plugins:
+  # Built-in Python plugin (for analyzing this tool!)
+  python:
+    source:
+      type: "builtin"
+      name: "python"
+    file_patterns:
+      extensions: [".py"]
+      filenames: ["requirements.txt", "setup.py", "pyproject.toml", "Pipfile", "poetry.lock", "tox.ini", "pytest.ini"]
+      glob_patterns: ["requirements*.txt", "**/setup.py"]
+    enabled: true
+    config:
+      analyze_docstrings: true
+      check_type_hints: true
+
+  # Built-in Rust plugin (for analyzing this tool!)
+  rust:
+    source:
+      type: "builtin"
+      name: "rust"
+    file_patterns:
+      extensions: [".rs"]
+      filenames: ["Cargo.toml", "Cargo.lock", ".rustfmt.toml", "rust-toolchain.toml"]
+      glob_patterns: ["**/Cargo.toml", "rust-toolchain*"]
+    enabled: true
+    config:
+      analyze_unsafe: true
+      check_documentation: true
