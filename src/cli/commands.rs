@@ -65,13 +65,18 @@ async fn handle_scan(
     let scanner = ProjectScanner::new(config.clone())
         .with_root(&project_path);
 
-    // Perform the scan
-    let files = scanner.scan().await?;
+    // Perform the scan and build matrix
+    let mut matrix = scanner.scan_to_matrix().await?;
 
-    // Print results in a nice format
-    scanner.print_scan_results(&files);
+    // Print matrix summary
+    matrix.print_summary();
 
-    // TODO: Later we'll save to matrix and do LLM analysis
+    // Save the matrix
+    let matrix_path = project_path.join(".csd_cache").join("matrix.json");
+    matrix.save(&matrix_path).await?;
+    info!("Matrix saved to: {}", matrix_path.display());
+
+    // TODO: Later we'll do plugin analysis and LLM processing
     if !no_llm {
         info!("LLM analysis would happen here (not implemented yet)");
     }
@@ -80,21 +85,28 @@ async fn handle_scan(
         info!("Test file analysis would be included (not implemented yet)");
     }
 
-    // TODO: Handle different output formats and files
+    // Handle different output formats
     match output {
         crate::cli::args::OutputFormat::Json => {
-            info!("JSON output would be generated here");
+            let json_output = serde_json::to_string_pretty(&matrix)?;
+            if let Some(output_path) = output_file {
+                tokio::fs::write(output_path, json_output).await?;
+            } else {
+                println!("{}", json_output);
+            }
         }
         crate::cli::args::OutputFormat::Yaml => {
-            info!("YAML output would be generated here");
+            let yaml_output = serde_yaml::to_string(&matrix)?;
+            if let Some(output_path) = output_file {
+                tokio::fs::write(output_path, yaml_output).await?;
+            } else {
+                println!("{}", yaml_output);
+            }
         }
         crate::cli::args::OutputFormat::Pretty => {
-            info!("Pretty output already shown above");
+            // Already shown the summary above
+            info!("Pretty output already displayed above");
         }
-    }
-
-    if let Some(output_path) = output_file {
-        info!("Results would be saved to: {}", output_path.display());
     }
 
     Ok(())

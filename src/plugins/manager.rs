@@ -44,7 +44,7 @@ impl PluginManager {
         Ok(plugins)
     }
 
-    async fn resolve_plugin_path(&self, name: &str, source: &PluginSource) -> Result<PathBuf> {
+    async fn resolve_plugin_path(&self, _name: &str, source: &PluginSource) -> Result<PathBuf> {
         match source {
             PluginSource::Local { path } => {
                 Ok(PathBuf::from(path))

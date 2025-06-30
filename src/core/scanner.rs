@@ -1,9 +1,10 @@
 use anyhow::Result;
 use log::{info, debug, warn};
+use sha2::{Sha256, Digest};
 use std::path::{Path, PathBuf};
-use walkdir::WalkDir;
 use ignore::WalkBuilder;
 use crate::utils::config::Config;
+use crate::core::matrix::{ProjectMatrix, FileNode};
 
 #[derive(Debug, Clone)]
 pub struct FileInfo {
@@ -12,7 +13,8 @@ pub struct FileInfo {
     pub extension: Option<String>,
     pub size_bytes: u64,
     pub is_text: bool,
-    pub language: Option<String>,
+    pub plugin_name: Option<String>,
+    pub content_hash: String,
 }
 
 pub struct ProjectScanner {
@@ -33,11 +35,45 @@ impl ProjectScanner {
         self
     }
 
+    pub async fn scan_to_matrix(&self) -> Result<ProjectMatrix> {
+        info!("Starting file scan and matrix creation in: {}", self.project_root.display());
+
+        let mut matrix = ProjectMatrix::new(self.project_root.clone());
+        let files = self.scan().await?;
+
+        info!("Found {} files, building matrix...", files.len());
+
+        // Convert files to matrix nodes
+        for file_info in files {
+            // For now, create basic file nodes without plugin analysis
+            // TODO: Later we'll call plugins to populate elements, imports, etc.
+
+            let file_node = FileNode {
+                path: file_info.path.clone(),
+                relative_path: file_info.relative_path,
+                hash: file_info.content_hash,
+                size_bytes: file_info.size_bytes,
+                plugin: file_info.plugin_name.unwrap_or_else(|| "unknown".to_string()),
+                language: self.config.find_plugin_for_file(&file_info.path),
+                is_text: file_info.is_text,
+                elements: Vec::new(),     // TODO: Populate from plugin
+                imports: Vec::new(),      // TODO: Populate from plugin
+                exports: Vec::new(),      // TODO: Populate from plugin
+                file_summary: None,      // TODO: Generate with LLM
+            };
+
+            matrix.add_file(file_node);
+        }
+
+        info!("Matrix created with {} files", matrix.files.len());
+        Ok(matrix)
+    }
+
     pub async fn scan(&self) -> Result<Vec<FileInfo>> {
         info!("Starting file scan in: {}", self.project_root.display());
 
         let mut files = Vec::new();
-        let mut total_files = 0;
+        let mut _total_files = 0;
         let mut skipped_files = 0;
 
         // Use the `ignore` crate to respect .gitignore, .ignore files
@@ -56,7 +92,7 @@ impl ProjectScanner {
                 }
             };
 
-            total_files += 1;
+            _total_files += 1;
 
             // Skip directories
             if entry.file_type().map_or(false, |ft| ft.is_dir()) {
@@ -105,13 +141,17 @@ impl ProjectScanner {
             let is_text = self.is_text_file(path, &extension);
             let plugin_name = self.config.find_plugin_for_file(path);
 
+            // Calculate content hash
+            let content_hash = self.calculate_file_hash(path).unwrap_or_else(|_| "error".to_string());
+
             let file_info = FileInfo {
                 path: path.to_path_buf(),
                 relative_path,
                 extension,
                 size_bytes,
                 is_text,
-                language: plugin_name,
+                plugin_name,
+                content_hash,
             };
 
             debug!("Found file: {:?}", file_info);
@@ -121,6 +161,14 @@ impl ProjectScanner {
         info!("Scan complete. Found {} files, skipped {} files", files.len(), skipped_files);
 
         Ok(files)
+    }
+
+    fn calculate_file_hash(&self, path: &Path) -> Result<String> {
+        let content = std::fs::read(path)?;
+        let mut hasher = Sha256::new();
+        hasher.update(&content);
+        let hash = hasher.finalize();
+        Ok(format!("{:x}", hash))
     }
 
     fn should_ignore_file(&self, path: &Path) -> bool {
@@ -178,140 +226,20 @@ impl ProjectScanner {
         }
     }
 
-    fn detect_language(&self, path: &Path, extension: &Option<String>) -> Option<String> {
-        // First check by filename (ecosystem files)
-        let filename = path.file_name()
-            .and_then(|name| name.to_str())
-            .unwrap_or("");
-
-        if let Some(lang) = self.detect_language_by_filename(filename) {
-            return Some(lang);
-        }
-
-        // Then check by extension
-        extension.as_ref().and_then(|ext| {
-            match ext.as_str() {
-                ".rs" => Some("rust".to_string()),
-                ".py" => Some("python".to_string()),
-                ".js" | ".mjs" => Some("javascript".to_string()),
-                ".ts" => Some("typescript".to_string()),
-                ".jsx" => Some("jsx".to_string()),
-                ".tsx" => Some("tsx".to_string()),
-                ".java" => Some("java".to_string()),
-                ".c" => Some("c".to_string()),
-                ".cpp" | ".cxx" | ".cc" => Some("cpp".to_string()),
-                ".h" => Some("c_header".to_string()),
-                ".hpp" | ".hxx" => Some("cpp_header".to_string()),
-                ".cs" => Some("csharp".to_string()),
-                ".go" => Some("go".to_string()),
-                ".rb" => Some("ruby".to_string()),
-                ".php" => Some("php".to_string()),
-                ".swift" => Some("swift".to_string()),
-                ".kt" => Some("kotlin".to_string()),
-                ".scala" => Some("scala".to_string()),
-                ".html" | ".htm" => Some("html".to_string()),
-                ".css" => Some("css".to_string()),
-                ".scss" => Some("scss".to_string()),
-                ".sass" => Some("sass".to_string()),
-                ".less" => Some("less".to_string()),
-                ".json" => Some("json".to_string()),
-                ".yaml" | ".yml" => Some("yaml".to_string()),
-                ".xml" => Some("xml".to_string()),
-                ".md" => Some("markdown".to_string()),
-                ".sh" | ".bash" => Some("bash".to_string()),
-                ".ps1" => Some("powershell".to_string()),
-                ".sql" => Some("sql".to_string()),
-
-                // Generic config files - only if not caught by filename detection above
-                ".toml" => Some("toml".to_string()),
-                ".ini" | ".cfg" | ".conf" => Some("config".to_string()),
-
-                _ => None,
-            }
-        })
-    }
-
-    fn detect_language_by_filename(&self, filename: &str) -> Option<String> {
-        match filename.to_lowercase().as_str() {
-            // Rust ecosystem
-            "cargo.toml" | "cargo.lock" => Some("rust".to_string()),
-            ".rustfmt.toml" | "rust-toolchain.toml" => Some("rust".to_string()),
-
-            // Python ecosystem
-            "requirements.txt" | "requirements-dev.txt" | "requirements-test.txt" => Some("python".to_string()),
-            "pyproject.toml" | "setup.py" | "setup.cfg" => Some("python".to_string()),
-            "pipfile" | "pipfile.lock" | "poetry.lock" => Some("python".to_string()),
-            "conda.yaml" | "environment.yml" => Some("python".to_string()),
-            "tox.ini" | "pytest.ini" | ".flake8" | ".pylintrc" => Some("python".to_string()),
-
-            // JavaScript/Node.js ecosystem
-            "package.json" | "package-lock.json" | "yarn.lock" => Some("javascript".to_string()),
-            "tsconfig.json" | "jsconfig.json" => Some("typescript".to_string()),
-            "webpack.config.js" | "vite.config.js" | "rollup.config.js" => Some("javascript".to_string()),
-            ".eslintrc.json" | ".eslintrc.js" | ".prettierrc" => Some("javascript".to_string()),
-            "babel.config.js" | ".babelrc" => Some("javascript".to_string()),
-
-            // Java ecosystem
-            "pom.xml" | "build.gradle" | "build.gradle.kts" => Some("java".to_string()),
-            "gradle.properties" | "settings.gradle" => Some("java".to_string()),
-
-            // Go ecosystem
-            "go.mod" | "go.sum" => Some("go".to_string()),
-
-            // Ruby ecosystem
-            "gemfile" | "gemfile.lock" | "rakefile" => Some("ruby".to_string()),
-            ".ruby-version" | ".ruby-gemset" => Some("ruby".to_string()),
-
-            // PHP ecosystem
-            "composer.json" | "composer.lock" => Some("php".to_string()),
-
-            // .NET ecosystem
-            "global.json" | "nuget.config" => Some("csharp".to_string()),
-
-            // C/C++ ecosystem
-            "makefile" | "cmake" | "cmakelists.txt" => Some("cpp".to_string()),
-            "configure.ac" | "configure.in" => Some("cpp".to_string()),
-
-            // Docker ecosystem
-            "dockerfile" | "docker-compose.yml" | "docker-compose.yaml" => Some("docker".to_string()),
-            ".dockerignore" => Some("docker".to_string()),
-
-            // CI/CD files
-            ".gitlab-ci.yml" => Some("gitlab_ci".to_string()),
-            "jenkinsfile" => Some("jenkins".to_string()),
-
-            // General project files
-            "readme.md" | "readme.txt" | "readme" => Some("documentation".to_string()),
-            "license" | "copyright" | "authors" | "contributors" => Some("documentation".to_string()),
-            "changelog.md" | "changelog" | "news.md" => Some("documentation".to_string()),
-
-            // Git files
-            ".gitignore" | ".gitattributes" | ".gitmodules" => Some("git".to_string()),
-
-            // Editor config
-            ".editorconfig" => Some("config".to_string()),
-
-            _ => None,
-        }
-    }
-
-    // Remove the unused helper method
-    // fn get_filename_from_current_file(&self) -> String {
-
     pub fn print_scan_results(&self, files: &[FileInfo]) {
         println!("\n=== CSD File Scan Results ===");
         println!("Project root: {}", self.project_root.display());
         println!("Total files found: {}\n", files.len());
 
-        // Group by language
-        let mut by_language: std::collections::HashMap<String, Vec<&FileInfo>> =
+        // Group by plugin
+        let mut by_plugin: std::collections::HashMap<String, Vec<&FileInfo>> =
             std::collections::HashMap::new();
         let mut unknown_files = Vec::new();
 
         for file in files {
-            match &file.language {
-                Some(lang) => {
-                    by_language.entry(lang.clone()).or_default().push(file);
+            match &file.plugin_name {
+                Some(plugin) => {
+                    by_plugin.entry(plugin.clone()).or_default().push(file);
                 }
                 None => {
                     unknown_files.push(file);
@@ -319,15 +247,15 @@ impl ProjectScanner {
             }
         }
 
-        // Print by language
-        let mut languages: Vec<_> = by_language.keys().collect();
-        languages.sort();
+        // Print by plugin
+        let mut plugins: Vec<_> = by_plugin.keys().collect();
+        plugins.sort();
 
-        for lang in languages {
-            let files_for_lang = &by_language[lang];
-            println!("📁 {} ({} files)", lang.to_uppercase(), files_for_lang.len());
+        for plugin in plugins {
+            let files_for_plugin = &by_plugin[plugin];
+            println!("📁 {} ({} files)", plugin.to_uppercase(), files_for_plugin.len());
 
-            for file in files_for_lang {
+            for file in files_for_plugin {
                 let size_kb = file.size_bytes as f64 / 1024.0;
                 println!("   {} ({:.1} KB)", file.relative_path.display(), size_kb);
             }
@@ -350,7 +278,7 @@ impl ProjectScanner {
             .sum::<f64>() / (1024.0 * 1024.0);
 
         println!("📊 Summary:");
-        println!("   Languages detected: {}", by_language.len());
+        println!("   Plugins detected: {}", by_plugin.len());
         println!("   Text files: {}", files.iter().filter(|f| f.is_text).count());
         println!("   Total size: {:.2} MB", total_size_mb);
     }

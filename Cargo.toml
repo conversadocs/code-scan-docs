@@ -2,10 +2,10 @@
 name = "csd"
 version = "0.1.0"
 edition = "2021"
-authors = ["Jason Anton <jason@conversadocs.com.com>"]
+authors = ["Your Name <your.email@example.com>"]
 description = "A comprehensive code analysis and documentation tool"
-license = "Apache-2.0"
-repository = "https://github.com/conversadocs/code-scan-docs"
+license = "MIT"
+repository = "https://github.com/yourusername/code-scan-docs"
 keywords = ["code-analysis", "documentation", "cli", "llm"]
 categories = ["command-line-utilities", "development-tools"]
 
@@ -24,6 +24,7 @@ toml = "0.8"
 # Async runtime and HTTP client
 tokio = { version = "1.0", features = ["full"] }
 reqwest = { version = "0.11", features = ["json", "stream"] }
+async-trait = "0.1"
 
 # File system and path handling
 walkdir = "2.4"
@@ -40,9 +41,7 @@ thiserror = "1.0"
 indexmap = "2.0"  # For maintaining order in maps
 uuid = { version = "1.6", features = ["v4"] }
 chrono = { version = "0.4", features = ["serde"] }
-
-# Subprocess management (for Python plugins)
-tokio-process = "0.2"
+sha2 = "0.10"     # For file hashing
 
 # Graph data structures (for dependency matrix)
 petgraph = "0.6"

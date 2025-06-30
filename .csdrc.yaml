@@ -24,6 +24,7 @@ scanning:
     - "dist/"
     - "*.md"
     - "LICENSE"
+    - "./config/default.yaml"
 
   # Whether to include hidden files/directories
   include_hidden: false
