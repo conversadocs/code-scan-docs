@@ -25,6 +25,7 @@ scanning:
     - "*.md"
     - "LICENSE"
     - "./config/default.yaml"
+    - "*.rs"
 
   # Whether to include hidden files/directories
   include_hidden: false
@@ -49,15 +50,15 @@ plugins:
       check_type_hints: true
 
   # Built-in Rust plugin (for analyzing this tool!)
-  rust:
-    source:
-      type: "builtin"
-      name: "rust"
-    file_patterns:
-      extensions: [".rs"]
-      filenames: ["Cargo.toml", "Cargo.lock", ".rustfmt.toml", "rust-toolchain.toml"]
-      glob_patterns: ["**/Cargo.toml", "rust-toolchain*"]
-    enabled: true
-    config:
-      analyze_unsafe: true
-      check_documentation: true
+  # rust:
+  #   source:
+  #     type: "builtin"
+  #     name: "rust"
+  #   file_patterns:
+  #     extensions: [".rs"]
+  #     filenames: ["Cargo.toml", "Cargo.lock", ".rustfmt.toml", "rust-toolchain.toml"]
+  #     glob_patterns: ["**/Cargo.toml", "rust-toolchain*"]
+  #   enabled: true
+  #   config:
+  #     analyze_unsafe: true
+  #     check_documentation: true

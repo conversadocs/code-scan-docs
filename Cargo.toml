@@ -39,7 +39,7 @@ thiserror = "1.0"
 
 # Data structures and utilities
 indexmap = "2.0"  # For maintaining order in maps
-uuid = { version = "1.6", features = ["v4"] }
+uuid = { version = "1.6", features = ["v4", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
 sha2 = "0.10"     # For file hashing
 
