@@ -17,22 +17,16 @@ pub async fn handle_command(args: Args) -> Result<()> {
             output,
             output_file,
             no_llm,
-            include_tests
-        } => {
-            handle_scan(path, output, output_file, no_llm, include_tests, &config).await
-        }
-        Command::Quality { matrix, metrics } => {
-            handle_quality(matrix, metrics, &config).await
-        }
-        Command::Docs { matrix, format, output_dir } => {
-            handle_docs(matrix, format, output_dir, &config).await
-        }
-        Command::Plugins { detailed } => {
-            handle_plugins(detailed, &config).await
-        }
-        Command::Init { force } => {
-            handle_init(force).await
-        }
+            include_tests,
+        } => handle_scan(path, output, output_file, no_llm, include_tests, &config).await,
+        Command::Quality { matrix, metrics } => handle_quality(matrix, metrics, &config).await,
+        Command::Docs {
+            matrix,
+            format,
+            output_dir,
+        } => handle_docs(matrix, format, output_dir, &config).await,
+        Command::Plugins { detailed } => handle_plugins(detailed, &config).await,
+        Command::Init { force } => handle_init(force).await,
     }
 }
 
@@ -53,8 +47,8 @@ async fn handle_scan(
     path: Option<PathBuf>,
     output: crate::cli::args::OutputFormat,
     output_file: Option<PathBuf>,
-    no_llm: bool,
-    include_tests: bool,
+    _no_llm: bool,
+    _include_tests: bool,
     config: &Config,
 ) -> Result<()> {
     info!("Building project matrix...");
@@ -62,8 +56,7 @@ async fn handle_scan(
     let project_path = path.unwrap_or_else(|| PathBuf::from("."));
 
     // Create and configure scanner
-    let scanner = ProjectScanner::new(config.clone())
-        .with_root(&project_path);
+    let scanner = ProjectScanner::new(config.clone()).with_root(&project_path);
 
     // Perform the scan and build matrix
     let mut matrix = scanner.scan_to_matrix().await?;
@@ -157,7 +150,9 @@ async fn handle_plugins(detailed: bool, config: &Config) -> Result<()> {
         }
     } else {
         for plugin in plugins {
-            let all_patterns: Vec<String> = plugin.extensions.iter()
+            let all_patterns: Vec<String> = plugin
+                .extensions
+                .iter()
                 .chain(plugin.filenames.iter())
                 .cloned()
                 .collect();

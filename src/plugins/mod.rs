@@ -1,3 +1,3 @@
-pub mod manager;
-pub mod interface;
 pub mod communication;
+pub mod interface;
+pub mod manager;
