@@ -63,4 +63,11 @@ docs/build/
 
 # Watch mode temporary files
 .watchmanconfig
-```
+
+# CSD specific
+.csd_cache/          # Downloaded plugins
+csdrc.local.yaml     # Local overrides
+
+# Added by cargo
+
+/target
