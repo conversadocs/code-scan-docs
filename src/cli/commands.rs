@@ -1,5 +1,5 @@
 use anyhow::Result;
-use log::{info, warn};
+use log::{debug, info, warn};
 use std::path::PathBuf;
 
 use crate::cli::args::{Args, Command};
@@ -41,7 +41,7 @@ async fn load_config(args: &Args) -> Result<Config> {
     let config_path = args.config.as_ref().unwrap_or(&default_path);
 
     if config_path.exists() {
-        info!("Loading configuration from: {}", config_path.display());
+        debug!("Loading configuration from: {}", config_path.display());
         Config::load(config_path).await
     } else {
         warn!("Configuration file not found, using defaults");
@@ -57,7 +57,7 @@ async fn handle_scan(
     include_tests: bool,
     config: &Config,
 ) -> Result<()> {
-    info!("Starting project scan...");
+    info!("Building project matrix...");
 
     let project_path = path.unwrap_or_else(|| PathBuf::from("."));
 
@@ -71,43 +71,43 @@ async fn handle_scan(
     // Print matrix summary
     matrix.print_summary();
 
-    // Save the matrix
+    // Save the matrix to cache (this is the primary deliverable)
     let matrix_path = project_path.join(".csd_cache").join("matrix.json");
     matrix.save(&matrix_path).await?;
     info!("Matrix saved to: {}", matrix_path.display());
 
-    // TODO: Later we'll do plugin analysis and LLM processing
-    if !no_llm {
-        info!("LLM analysis would happen here (not implemented yet)");
-    }
-
-    if include_tests {
-        info!("Test file analysis would be included (not implemented yet)");
-    }
-
-    // Handle different output formats
-    match output {
-        crate::cli::args::OutputFormat::Json => {
-            let json_output = serde_json::to_string_pretty(&matrix)?;
-            if let Some(output_path) = output_file {
-                tokio::fs::write(output_path, json_output).await?;
-            } else {
-                println!("{}", json_output);
+    // Optional: export matrix to additional formats if requested
+    if let Some(output_path) = output_file {
+        match output {
+            crate::cli::args::OutputFormat::Json => {
+                let json_output = serde_json::to_string_pretty(&matrix)?;
+                tokio::fs::write(&output_path, json_output).await?;
+                info!("Matrix also exported as JSON to: {}", output_path.display());
+            }
+            crate::cli::args::OutputFormat::Yaml => {
+                let yaml_output = serde_yaml::to_string(&matrix)?;
+                tokio::fs::write(&output_path, yaml_output).await?;
+                info!("Matrix also exported as YAML to: {}", output_path.display());
+            }
+            crate::cli::args::OutputFormat::Pretty => {
+                // For pretty format with output file, save the summary
+                let summary = format!("=== Project Matrix Summary ===\nProject: {}\nFiles: {}\nRelationships: {}\nExternal dependencies: {}\nLanguages: {}\n",
+                    matrix.metadata.project_root.display(),
+                    matrix.metadata.total_files,
+                    matrix.relationships.len(),
+                    matrix.external_dependencies.len(),
+                    matrix.metadata.plugins_used.join(", ")
+                );
+                tokio::fs::write(&output_path, summary).await?;
+                info!("Matrix summary exported to: {}", output_path.display());
             }
         }
-        crate::cli::args::OutputFormat::Yaml => {
-            let yaml_output = serde_yaml::to_string(&matrix)?;
-            if let Some(output_path) = output_file {
-                tokio::fs::write(output_path, yaml_output).await?;
-            } else {
-                println!("{}", yaml_output);
-            }
-        }
-        crate::cli::args::OutputFormat::Pretty => {
-            // Already shown the summary above
-            info!("Pretty output already displayed above");
-        }
     }
+
+    info!("Matrix build complete. Use 'csd quality', 'csd docs', or other commands to analyze the matrix.");
+
+    // Note: --no-llm and --include-tests flags are ignored for scan command
+    // Those operations happen in separate commands that use the cached matrix
 
     Ok(())
 }
@@ -117,7 +117,7 @@ async fn handle_quality(
     _metrics: Vec<crate::cli::args::QualityMetric>,
     _config: &Config,
 ) -> Result<()> {
-    info!("Analyzing code quality...");
+    debug!("Analyzing code quality...");
 
     // TODO: Implement quality analysis
     println!("Quality analysis functionality will be implemented here");
@@ -131,7 +131,7 @@ async fn handle_docs(
     _output_dir: Option<PathBuf>,
     _config: &Config,
 ) -> Result<()> {
-    info!("Generating documentation...");
+    debug!("Generating documentation...");
 
     // TODO: Implement documentation generation
     println!("Documentation generation functionality will be implemented here");
@@ -140,7 +140,7 @@ async fn handle_docs(
 }
 
 async fn handle_plugins(detailed: bool, config: &Config) -> Result<()> {
-    info!("Listing available plugins...");
+    debug!("Listing available plugins...");
 
     let plugin_manager = PluginManager::new(config.clone());
     let plugins = plugin_manager.discover_plugins().await?;
@@ -169,7 +169,7 @@ async fn handle_plugins(detailed: bool, config: &Config) -> Result<()> {
 }
 
 async fn handle_init(force: bool) -> Result<()> {
-    info!("Initializing configuration...");
+    debug!("Initializing configuration...");
 
     let config_path = PathBuf::from(".csdrc.yaml");
 
@@ -182,7 +182,7 @@ async fn handle_init(force: bool) -> Result<()> {
     let default_config = Config::default();
     default_config.save(&config_path).await?;
 
-    info!("Created configuration file: {}", config_path.display());
+    debug!("Created configuration file: {}", config_path.display());
 
     Ok(())
 }

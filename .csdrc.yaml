@@ -4,6 +4,12 @@
 # Output directory for generated reports and documentation
 output_dir: "output"
 
+# Python executable to use for plugins (optional - will auto-detect if not specified)
+# Useful for pyenv, conda, or specific Python installations
+# python_executable: "python"     # Default: auto-detect
+# python_executable: "python3"    # For systems where python3 is preferred
+# python_executable: "/path/to/specific/python"  # For custom installations
+
 # LLM Configuration
 llm:
   provider: "ollama"
@@ -15,17 +21,11 @@ llm:
 scanning:
   # Patterns to ignore during scanning (glob patterns)
   ignore_patterns:
+    - "config/"
     - "target/"
-    - "node_modules/"
-    - ".git/"
     - "*.log"
-    - ".csd_cache/"
-    - "build/"
-    - "dist/"
     - "*.md"
     - "LICENSE"
-    - "./config/default.yaml"
-    - "*.rs"
 
   # Whether to include hidden files/directories
   include_hidden: false
@@ -50,15 +50,15 @@ plugins:
       check_type_hints: true
 
   # Built-in Rust plugin (for analyzing this tool!)
-  # rust:
-  #   source:
-  #     type: "builtin"
-  #     name: "rust"
-  #   file_patterns:
-  #     extensions: [".rs"]
-  #     filenames: ["Cargo.toml", "Cargo.lock", ".rustfmt.toml", "rust-toolchain.toml"]
-  #     glob_patterns: ["**/Cargo.toml", "rust-toolchain*"]
-  #   enabled: true
-  #   config:
-  #     analyze_unsafe: true
-  #     check_documentation: true
+  rust:
+    source:
+      type: "builtin"
+      name: "rust"
+    file_patterns:
+      extensions: [".rs"]
+      filenames: ["Cargo.toml", "Cargo.lock", ".rustfmt.toml", "rust-toolchain.toml"]
+      glob_patterns: ["**/Cargo.toml", "rust-toolchain*"]
+    enabled: true
+    config:
+      analyze_unsafe: true
+      check_documentation: true

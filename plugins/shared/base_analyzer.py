@@ -165,8 +165,35 @@ class BaseAnalyzer(ABC):
     def run(self):
         """Main entry point for plugin execution."""
         try:
-            # Read all input from stdin
-            input_data = sys.stdin.read().strip()
+            # Configure stdout to be line buffered
+            sys.stdout.reconfigure(line_buffering=True)
+            sys.stderr.reconfigure(line_buffering=True)
+
+            # Read all input from stdin - try different approaches
+            try:
+                # Method 1: Read all at once
+                input_data = sys.stdin.read().strip()
+            except Exception as e:
+                # Method 2: Read line by line until we get valid JSON
+                print(f"Failed to read all input: {e}", file=sys.stderr)
+                input_lines = []
+                try:
+                    for line in sys.stdin:
+                        input_lines.append(line.strip())
+                        # Try to parse as JSON to see if we have a complete message
+                        try:
+                            full_input = "".join(input_lines)
+                            json.loads(full_input)
+                            input_data = full_input
+                            break
+                        except json.JSONDecodeError:
+                            continue
+                    else:
+                        input_data = "".join(input_lines)
+                except Exception as e2:
+                    self._send_error(f"Failed to read input: {e2}")
+                    return
+
             if not input_data:
                 self._send_error("No input received")
                 return
@@ -189,7 +216,10 @@ class BaseAnalyzer(ABC):
                 self._send_error(f"Unknown message type: {message.get('type')}")
 
         except Exception as e:
-            self._send_error(f"Plugin error: {e}")
+            import traceback
+
+            error_details = traceback.format_exc()
+            self._send_error(f"Plugin error: {e}", error_details)
 
     def _handle_can_analyze(self, message: Dict[str, Any]):
         """Handle can_analyze request."""

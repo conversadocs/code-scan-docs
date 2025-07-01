@@ -9,6 +9,7 @@ pub struct Config {
     pub llm: LlmConfig,
     pub scanning: ScanConfig,
     pub plugins: HashMap<String, PluginConfig>,
+    pub python_executable: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -121,6 +122,7 @@ impl Default for Config {
                 max_file_size_mb: 10,
             },
             plugins,
+            python_executable: None,
         }
     }
 }
