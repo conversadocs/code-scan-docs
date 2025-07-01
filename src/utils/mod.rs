@@ -1,2 +1,2 @@
-pub mod file_utils;
 pub mod config;
+pub mod file_utils;
