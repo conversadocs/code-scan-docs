@@ -90,7 +90,10 @@ pub enum PluginMessage {
 #[serde(tag = "status")]
 pub enum PluginResponse {
     #[serde(rename = "success")]
-    Success { data: PluginOutput },
+    Success {
+        cache_file: String,
+        processing_time_ms: i32,
+    },
 
     #[serde(rename = "can_analyze")]
     CanAnalyze { can_analyze: bool, confidence: f32 },

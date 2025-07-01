@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, AsyncReadExt, BufReader};
 use tokio::process::Command;
+use tokio::fs;
 use serde_json;
 
 use crate::plugins::interface::{PluginInput, PluginResponse, PluginMessage};
@@ -11,13 +12,15 @@ use crate::plugins::interface::{PluginInput, PluginResponse, PluginMessage};
 pub struct PluginCommunicator {
     plugin_path: PathBuf,
     python_executable: String,
+    cache_dir: PathBuf,
 }
 
 impl PluginCommunicator {
-    pub fn new(plugin_path: PathBuf) -> Self {
+    pub fn new(plugin_path: PathBuf, cache_dir: PathBuf) -> Self {
         Self {
             plugin_path,
-            python_executable: "python".to_string(), // Changed from python3 to python
+            python_executable: "python".to_string(),
+            cache_dir,
         }
     }
 
@@ -134,12 +137,35 @@ impl PluginCommunicator {
         }
     }
 
-    /// Analyze a file with this plugin
-    pub async fn analyze(&self, input: PluginInput) -> Result<crate::plugins::interface::PluginOutput> {
+    /// Analyze a file with this plugin using file-based communication
+    pub async fn analyze(&self, mut input: PluginInput) -> Result<crate::plugins::interface::PluginOutput> {
+        // Add cache directory to input
+        input.cache_dir = Some(self.cache_dir.to_string_lossy().to_string());
+
         let message = PluginMessage::Analyze { input };
 
         match self.send_message(message).await? {
-            PluginResponse::Success { data } => Ok(data),
+            PluginResponse::Success { cache_file, processing_time_ms } => {
+                // Read the analysis result from the cache file
+                let cache_file_path = self.cache_dir.join(&cache_file);
+
+                debug!("Reading analysis result from cache file: {}", cache_file_path.display());
+
+                let cache_content = fs::read_to_string(&cache_file_path).await
+                    .context(format!("Failed to read cache file: {}", cache_file_path.display()))?;
+
+                let plugin_output: crate::plugins::interface::PluginOutput =
+                    serde_json::from_str(&cache_content)
+                        .context("Failed to parse cached analysis result")?;
+
+                // Optionally clean up the cache file after reading
+                // You might want to keep it for debugging or future use
+                // let _ = fs::remove_file(&cache_file_path).await;
+
+                debug!("Successfully loaded analysis result from cache, processing time: {}ms", processing_time_ms);
+
+                Ok(plugin_output)
+            }
             PluginResponse::Error { message, details } => {
                 Err(anyhow::anyhow!("Plugin analysis failed: {} {:?}", message, details))
             }
@@ -169,5 +195,34 @@ impl PluginCommunicator {
                 Err(anyhow::anyhow!("Plugin returned unexpected response to get_info"))
             }
         }
+    }
+
+    /// Clean up old cache files (optional utility method)
+    pub async fn cleanup_cache(&self, max_age_hours: u64) -> Result<()> {
+        use std::time::{SystemTime, UNIX_EPOCH, Duration};
+
+        let cutoff_time = SystemTime::now() - Duration::from_secs(max_age_hours * 3600);
+
+        let mut dir_entries = fs::read_dir(&self.cache_dir).await
+            .context("Failed to read cache directory")?;
+
+        while let Some(entry) = dir_entries.next_entry().await? {
+            let path = entry.path();
+            if path.extension().and_then(|s| s.to_str()) == Some("json") {
+                if let Ok(metadata) = entry.metadata().await {
+                    if let Ok(modified) = metadata.modified() {
+                        if modified < cutoff_time {
+                            if let Err(e) = fs::remove_file(&path).await {
+                                warn!("Failed to remove old cache file {}: {}", path.display(), e);
+                            } else {
+                                debug!("Removed old cache file: {}", path.display());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(())
     }
 }

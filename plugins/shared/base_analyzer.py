@@ -7,6 +7,7 @@ All language plugins should inherit from this class.
 import json
 import sys
 import time
+import hashlib
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Dict, List, Optional, Any, Union
@@ -84,6 +85,7 @@ class PluginInput:
     relative_path: str
     content: str
     project_root: str
+    cache_dir: str  # New field for cache directory
     plugin_config: Optional[Dict[str, Any]] = None
 
 
@@ -131,6 +133,34 @@ class BaseAnalyzer(ABC):
             "supported_extensions": self.supported_extensions,
             "supported_filenames": self.supported_filenames,
         }
+
+    def _generate_cache_filename(self, input_data: PluginInput) -> str:
+        """Generate a unique cache filename for this analysis."""
+        # Create a hash from file path and content to ensure uniqueness
+        content_hash = hashlib.md5(
+            (input_data.file_path + input_data.content).encode()
+        ).hexdigest()[:16]
+
+        # Clean the relative path for filename use
+        clean_path = input_data.relative_path.replace("/", "_").replace("\\", "_")
+        clean_path = clean_path.replace(".", "_")
+
+        return f"{self.name}_{clean_path}_{content_hash}.json"
+
+    def _write_to_cache(
+        self, result: PluginOutput, cache_filename: str, cache_dir: str
+    ) -> str:
+        """Write analysis result to cache file and return the filename."""
+        cache_path = Path(cache_dir) / cache_filename
+
+        # Ensure cache directory exists
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Write the result
+        with open(cache_path, "w", encoding="utf-8") as f:
+            json.dump(asdict(result), f, indent=2, ensure_ascii=False)
+
+        return cache_filename
 
     def run(self):
         """Main entry point for plugin execution."""
@@ -181,7 +211,7 @@ class BaseAnalyzer(ABC):
             self._send_error(f"Error in can_analyze: {e}")
 
     def _handle_analyze(self, message: Dict[str, Any]):
-        """Handle analyze request."""
+        """Handle analyze request - now writes to cache file."""
         try:
             input_dict = message["input"]
             input_data = PluginInput(**input_dict)
@@ -194,7 +224,18 @@ class BaseAnalyzer(ABC):
             result.processing_time_ms = int((end_time - start_time) * 1000)
             result.plugin_version = self.version
 
-            response = {"status": "success", "data": asdict(result)}
+            # Generate cache filename and write to cache
+            cache_filename = self._generate_cache_filename(input_data)
+            actual_filename = self._write_to_cache(
+                result, cache_filename, input_data.cache_dir
+            )
+
+            # Send back just the cache filename, not the full data
+            response = {
+                "status": "success",
+                "cache_file": actual_filename,
+                "processing_time_ms": result.processing_time_ms,
+            }
 
             self._send_response(response)
 
