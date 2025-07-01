@@ -18,7 +18,7 @@ Thanks goes to these wonderful people ([emoji key](https://allcontributors.org/d
 <table>
   <tbody>
     <tr>
-      <td align="center" valign="top" width="14.28%"><a href="https://www.jasonanton.com"><img src="https://avatars.githubusercontent.com/u/6391564?v=4?s=100" width="100px;" alt="Jason Anton"/><br /><sub><b>Jason Anton</b></sub></a><br /><a href="#content-stoopidJSON" title="Content">🖋</a></td>
+      <td align="center" valign="top" width="14.28%"><a href="https://www.jasonanton.com"><img src="https://avatars.githubusercontent.com/u/6391564?v=4?s=100" width="100px;" alt="Jason Anton"/><br /><sub><b>Jason Anton</b></sub></a><br /><a href="#content-stoopidJSON" title="Content">🖋</a> <a href="https://github.com/conversadocs/code-scan-docs/commits?author=stoopidJSON" title="Code">💻</a></td>
     </tr>
   </tbody>
 </table>
