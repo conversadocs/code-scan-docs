@@ -1,11 +1,12 @@
 use anyhow::{Result, Context};
-use log::{debug, warn, error};
+use log::{debug, warn, error, info};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, AsyncReadExt, BufReader};
 use tokio::process::Command;
 use tokio::fs;
 use serde_json;
+use std::time::Duration;
+use uuid::Uuid;
 
 use crate::plugins::interface::{PluginInput, PluginResponse, PluginMessage};
 
@@ -16,12 +17,20 @@ pub struct PluginCommunicator {
 }
 
 impl PluginCommunicator {
-    pub fn new(plugin_path: PathBuf, cache_dir: PathBuf) -> Self {
+    pub fn new(plugin_path: PathBuf) -> Self {
+        // Default cache directory
+        let cache_dir = PathBuf::from(".csd_cache");
+
         Self {
             plugin_path,
-            python_executable: "python".to_string(),
+            python_executable: "python".to_string(), // Use python (works with pyenv)
             cache_dir,
         }
+    }
+
+    pub fn with_cache_dir(mut self, cache_dir: PathBuf) -> Self {
+        self.cache_dir = cache_dir;
+        self
     }
 
     pub fn with_python_executable(mut self, executable: String) -> Self {
@@ -29,90 +38,124 @@ impl PluginCommunicator {
         self
     }
 
-    /// Send a message to the plugin and get a response
+    pub fn with_python_auto_detect(mut self) -> Self {
+        // Try to detect the best Python executable
+        // Priority: python (pyenv), python3, python
+        let candidates = ["python", "python3"];
+
+        for candidate in candidates.iter() {
+            if std::process::Command::new(candidate)
+                .arg("--version")
+                .output()
+                .is_ok()
+            {
+                self.python_executable = candidate.to_string();
+                debug!("Auto-detected Python executable: {}", candidate);
+                break;
+            }
+        }
+
+        self
+    }
+
+    /// Ensure cache directory exists
+    async fn ensure_cache_dir(&self) -> Result<()> {
+        if !self.cache_dir.exists() {
+            fs::create_dir_all(&self.cache_dir).await
+                .context("Failed to create cache directory")?;
+            debug!("Created cache directory: {}", self.cache_dir.display());
+        }
+        Ok(())
+    }
+
+    /// Send a message to the plugin using file-based communication
     pub async fn send_message(&self, message: PluginMessage) -> Result<PluginResponse> {
         debug!("Sending message to plugin: {}", self.plugin_path.display());
 
-        // Serialize the message
-        let message_json = serde_json::to_string(&message)
+        // Ensure cache directory exists
+        self.ensure_cache_dir().await?;
+
+        // Create temporary input file
+        let input_filename = format!("plugin_input_{}.json", Uuid::new_v4().to_string());
+        let input_file_path = self.cache_dir.join(&input_filename);
+
+        // Write message to temporary file
+        let message_json = serde_json::to_string_pretty(&message)
             .context("Failed to serialize plugin message")?;
 
-        debug!("Plugin message: {}", message_json);
+        fs::write(&input_file_path, &message_json).await
+            .context("Failed to write plugin input file")?;
 
-        // Spawn the plugin process
-        let mut child = Command::new(&self.python_executable)
-            .arg(&self.plugin_path)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .context("Failed to spawn plugin process")?;
+        debug!("Wrote plugin input to: {}", input_file_path.display());
 
-        // Get handles to stdin/stdout
-        let stdin = child.stdin.as_mut()
-            .context("Failed to get stdin handle")?;
-        let stdout = child.stdout.take()
-            .context("Failed to get stdout handle")?;
-        let stderr = child.stderr.take()
-            .context("Failed to get stderr handle")?;
+        // Run the plugin with the input file
+        let result = tokio::time::timeout(Duration::from_secs(30), async {
+            let input_file = std::fs::File::open(&input_file_path)
+                .context("Failed to open input file")?;
 
-        // Send the message
-        stdin.write_all(message_json.as_bytes()).await
-            .context("Failed to write to plugin stdin")?;
-        stdin.write_all(b"\n").await
-            .context("Failed to write newline to plugin stdin")?;
-        stdin.shutdown().await
-            .context("Failed to close plugin stdin")?;
+            let mut child = Command::new(&self.python_executable)
+                .arg(&self.plugin_path)
+                .stdin(Stdio::from(input_file))
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+                .context(format!("Failed to spawn plugin process: {} {}",
+                    self.python_executable, self.plugin_path.display()))?;
 
-        // Read the response
-        let mut stdout_reader = BufReader::new(stdout);
-        let mut stderr_reader = BufReader::new(stderr);
+            // Read stdout and stderr
+            let output = child.wait_with_output().await
+                .context("Failed to wait for plugin process")?;
 
-        let mut response_line = String::new();
-        let mut stderr_output = String::new();
+            Ok::<std::process::Output, anyhow::Error>(output)
+        }).await;
 
-        // Read response from stdout
-        match stdout_reader.read_line(&mut response_line).await {
-            Ok(0) => {
-                // No output, check stderr
-                let _ = stderr_reader.read_to_string(&mut stderr_output).await;
-                return Err(anyhow::anyhow!(
-                    "Plugin produced no output. Stderr: {}",
-                    stderr_output
-                ));
+        // Clean up input file
+        let _ = fs::remove_file(&input_file_path).await;
+
+        let output = match result {
+            Ok(Ok(output)) => output,
+            Ok(Err(e)) => return Err(e),
+            Err(_) => {
+                return Err(anyhow::anyhow!("Plugin process timed out after 30 seconds"));
             }
-            Ok(_) => {
-                debug!("Plugin response: {}", response_line.trim());
-            }
-            Err(e) => {
-                let _ = stderr_reader.read_to_string(&mut stderr_output).await;
-                return Err(anyhow::anyhow!(
-                    "Failed to read plugin response: {}. Stderr: {}",
-                    e, stderr_output
-                ));
-            }
+        };
+
+        // Convert to strings
+        let stdout_str = String::from_utf8_lossy(&output.stdout);
+        let stderr_str = String::from_utf8_lossy(&output.stderr);
+
+        debug!("Plugin stdout length: {} chars", stdout_str.len());
+        if !stderr_str.is_empty() {
+            debug!("Plugin stderr: {}", stderr_str);
         }
 
-        // Also capture any stderr for debugging
-        let _ = stderr_reader.read_to_string(&mut stderr_output).await;
-        if !stderr_output.is_empty() {
-            warn!("Plugin stderr: {}", stderr_output);
-        }
-
-        // Wait for the process to complete
-        let exit_status = child.wait().await
-            .context("Failed to wait for plugin process")?;
-
-        if !exit_status.success() {
+        if !output.status.success() {
             return Err(anyhow::anyhow!(
-                "Plugin exited with non-zero status: {}. Stderr: {}",
-                exit_status, stderr_output
+                "Plugin exited with non-zero status: {}. Stdout: {}. Stderr: {}",
+                output.status, stdout_str.trim(), stderr_str.trim()
             ));
         }
 
+        if stdout_str.trim().is_empty() {
+            return Err(anyhow::anyhow!(
+                "Plugin produced no output. Stderr: {}",
+                stderr_str.trim()
+            ));
+        }
+
+        // Parse the response - it should be a single JSON line
+        let response_line = stdout_str.lines()
+            .find(|line| !line.trim().is_empty() && line.trim().starts_with('{'))
+            .ok_or_else(|| anyhow::anyhow!(
+                "No valid JSON response found in plugin output. Stdout: {}",
+                stdout_str.trim()
+            ))?;
+
+        debug!("Plugin JSON response: {}", response_line);
+
         // Parse the response
         let response: PluginResponse = serde_json::from_str(response_line.trim())
-            .context("Failed to parse plugin response JSON")?;
+            .context(format!("Failed to parse plugin response JSON: {}", response_line))?;
 
         Ok(response)
     }
@@ -138,10 +181,7 @@ impl PluginCommunicator {
     }
 
     /// Analyze a file with this plugin using file-based communication
-    pub async fn analyze(&self, mut input: PluginInput) -> Result<crate::plugins::interface::PluginOutput> {
-        // Add cache directory to input
-        input.cache_dir = Some(self.cache_dir.to_string_lossy().to_string());
-
+    pub async fn analyze(&self, input: PluginInput) -> Result<crate::plugins::interface::PluginOutput> {
         let message = PluginMessage::Analyze { input };
 
         match self.send_message(message).await? {
@@ -157,10 +197,6 @@ impl PluginCommunicator {
                 let plugin_output: crate::plugins::interface::PluginOutput =
                     serde_json::from_str(&cache_content)
                         .context("Failed to parse cached analysis result")?;
-
-                // Optionally clean up the cache file after reading
-                // You might want to keep it for debugging or future use
-                // let _ = fs::remove_file(&cache_file_path).await;
 
                 debug!("Successfully loaded analysis result from cache, processing time: {}ms", processing_time_ms);
 
@@ -199,7 +235,7 @@ impl PluginCommunicator {
 
     /// Clean up old cache files (optional utility method)
     pub async fn cleanup_cache(&self, max_age_hours: u64) -> Result<()> {
-        use std::time::{SystemTime, UNIX_EPOCH, Duration};
+        use std::time::{SystemTime, Duration};
 
         let cutoff_time = SystemTime::now() - Duration::from_secs(max_age_hours * 3600);
 

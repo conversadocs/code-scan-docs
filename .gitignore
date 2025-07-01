@@ -39,6 +39,7 @@ plugins/*.pyo
 # Logs and cache
 logs/
 cache/
+.csd_cache/
 matrix.json
 matrix.msgpack
 

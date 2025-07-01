@@ -36,24 +36,24 @@ impl ProjectScanner {
     }
 
     pub async fn scan_to_matrix(&self) -> Result<ProjectMatrix> {
-        info!("Starting file scan and matrix creation in: {}", self.project_root.display());
+        debug!("Starting file scan and matrix creation in: {}", self.project_root.display());
 
         let mut matrix = ProjectMatrix::new(self.project_root.clone());
         let files = self.scan().await?;
 
-        info!("Found {} files, analyzing with plugins...", files.len());
+        debug!("Found {} files, analyzing with plugins...", files.len());
 
         // Convert files to matrix nodes with plugin analysis
         for file_info in files {
-            info!("🔍 Processing file: {} (is_text: {}, plugin: {:?})",
+            debug!("🔍 Processing file: {} (is_text: {}, plugin: {:?})",
                 file_info.path.display(), file_info.is_text, file_info.plugin_name);
 
             let file_node = if file_info.is_text && file_info.plugin_name.is_some() {
-                info!("✅ Calling plugin for: {}", file_info.path.display());
+                debug!("✅ Calling plugin for: {}", file_info.path.display());
                 // Analyze with plugin
                 self.analyze_file_with_plugin(&file_info, &mut matrix).await?
             } else {
-                info!("❌ Skipping plugin for: {} (is_text: {}, plugin: {:?})",
+                debug!("❌ Skipping plugin for: {} (is_text: {}, plugin: {:?})",
                     file_info.path.display(), file_info.is_text, file_info.plugin_name);
                 // Create basic file node without plugin analysis
                 self.create_basic_file_node(&file_info).await?
@@ -62,28 +62,28 @@ impl ProjectScanner {
             matrix.add_file(file_node);
         }
 
-        info!("Matrix created with {} files", matrix.files.len());
+        debug!("Matrix created with {} files", matrix.files.len());
         Ok(matrix)
     }
 
     async fn analyze_file_with_plugin(
-        &self,
-        file_info: &FileInfo,
-        matrix: &mut ProjectMatrix,
-    ) -> Result<crate::core::matrix::FileNode> {
-        info!("🚀 Starting plugin analysis for: {}", file_info.path.display());
+            &self,
+            file_info: &FileInfo,
+            matrix: &mut ProjectMatrix,
+        ) -> Result<crate::core::matrix::FileNode> {
+        debug!("🚀 Starting plugin analysis for: {}", file_info.path.display());
 
         use crate::plugins::communication::PluginCommunicator;
         use crate::plugins::interface::PluginInput;
 
         let plugin_name = file_info.plugin_name.as_ref().unwrap();
-        info!("📝 Plugin name: {}", plugin_name);
+        debug!("📝 Plugin name: {}", plugin_name);
 
         // Get plugin path from config
         let plugin_config = self.config.plugins.get(plugin_name)
             .ok_or_else(|| anyhow::anyhow!("Plugin {} not found in config", plugin_name))?;
 
-        info!("⚙️ Got plugin config for: {}", plugin_name);
+        debug!("⚙️ Got plugin config for: {}", plugin_name);
 
         // Resolve plugin path
         let plugin_path = match &plugin_config.source {
@@ -96,7 +96,7 @@ impl ProjectScanner {
             }
         };
 
-        info!("📂 Plugin path resolved to: {}", plugin_path.display());
+        debug!("📂 Plugin path resolved to: {}", plugin_path.display());
 
         // Check if plugin file exists
         if !plugin_path.exists() {
@@ -104,13 +104,13 @@ impl ProjectScanner {
             return self.create_basic_file_node(file_info).await;
         }
 
-        info!("✅ Plugin file exists");
+        debug!("✅ Plugin file exists");
 
         // Read file content
-        info!("📖 Reading file content...");
+        debug!("📖 Reading file content...");
         let content = match tokio::fs::read_to_string(&file_info.path).await {
             Ok(content) => {
-                info!("✅ File content read ({} bytes)", content.len());
+                debug!("✅ File content read ({} bytes)", content.len());
                 content
             }
             Err(e) => {
@@ -119,27 +119,39 @@ impl ProjectScanner {
             }
         };
 
-        info!("🔧 Creating plugin input...");
+        // Set up cache directory
+        let cache_dir = self.project_root.join(".csd_cache");
+
+        debug!("🔧 Creating plugin input...");
         // Create plugin input
         let plugin_input = PluginInput {
             file_path: file_info.path.clone(),
             relative_path: file_info.relative_path.clone(),
             content,
             project_root: self.project_root.clone(),
+            cache_dir: cache_dir.to_string_lossy().to_string(),
             plugin_config: plugin_config.config.as_ref().map(|v| {
                 // Convert serde_yaml::Value to serde_json::Value
                 serde_json::to_value(v).unwrap_or(serde_json::Value::Null)
             }),
         };
 
-        info!("📡 Creating plugin communicator...");
+        debug!("📡 Creating plugin communicator...");
         // Communicate with plugin
-        let communicator = PluginCommunicator::new(plugin_path);
+        let mut communicator = PluginCommunicator::new(plugin_path)
+            .with_cache_dir(cache_dir);
 
-        info!("🔄 Starting plugin communication...");
+        // Use configured Python executable or auto-detect
+        if let Some(ref python_exe) = self.config.python_executable {
+            communicator = communicator.with_python_executable(python_exe.clone());
+        } else {
+            communicator = communicator.with_python_auto_detect();
+        }
+
+        debug!("🔄 Starting plugin communication...");
         match communicator.analyze(plugin_input).await {
             Ok(plugin_output) => {
-                info!("✅ Plugin analysis successful for: {} with {} elements",
+                debug!("✅ Plugin analysis successful for: {} with {} elements",
                     file_info.path.display(), plugin_output.elements.len());
 
                 // Convert plugin output to matrix data
@@ -277,7 +289,7 @@ impl ProjectScanner {
     }
 
     pub async fn scan(&self) -> Result<Vec<FileInfo>> {
-        info!("Starting file scan in: {}", self.project_root.display());
+        debug!("Starting file scan in: {}", self.project_root.display());
 
         let mut files = Vec::new();
         let mut _total_files = 0;
@@ -365,7 +377,7 @@ impl ProjectScanner {
             files.push(file_info);
         }
 
-        info!("Scan complete. Found {} files, skipped {} files", files.len(), skipped_files);
+        debug!("Scan complete. Found {} files, skipped {} files", files.len(), skipped_files);
 
         Ok(files)
     }

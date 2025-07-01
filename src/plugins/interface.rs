@@ -61,13 +61,14 @@ pub struct ExternalDependency {
     pub source_file: String,
 }
 
-/// Input sent to plugins
+/// Input sent to plugins - now includes cache_dir
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PluginInput {
     pub file_path: PathBuf,
     pub relative_path: PathBuf,
     pub content: String,
     pub project_root: PathBuf,
+    pub cache_dir: String,  // Added this field
     pub plugin_config: Option<serde_json::Value>,
 }
 
@@ -92,7 +93,7 @@ pub enum PluginResponse {
     #[serde(rename = "success")]
     Success {
         cache_file: String,
-        processing_time_ms: i32,
+        processing_time_ms: u64,  // Changed from i32 to u64 for consistency
     },
 
     #[serde(rename = "can_analyze")]

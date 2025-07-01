@@ -46,7 +46,7 @@ pub struct FileNode {
     pub elements: Vec<CodeElement>,
     pub imports: Vec<Import>,
     pub exports: Vec<String>,
-    pub file_summary: Option<String>, // LLM-generated summary
+    pub file_summary: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -199,7 +199,7 @@ impl ProjectMatrix {
 
     /// Save the matrix to a JSON file
     pub async fn save(&self, path: &Path) -> Result<()> {
-        info!("Saving project matrix to: {}", path.display());
+        debug!("Saving project matrix to: {}", path.display());
 
         // Ensure directory exists
         if let Some(parent) = path.parent() {
@@ -209,13 +209,13 @@ impl ProjectMatrix {
         let json = serde_json::to_string_pretty(self)?;
         tokio::fs::write(path, json).await?;
 
-        info!("Matrix saved successfully");
+        debug!("Matrix saved successfully");
         Ok(())
     }
 
     /// Load the matrix from a JSON file
     pub async fn load(path: &Path) -> Result<Self> {
-        info!("Loading project matrix from: {}", path.display());
+        debug!("Loading project matrix from: {}", path.display());
 
         let json = tokio::fs::read_to_string(path).await?;
         let mut matrix: ProjectMatrix = serde_json::from_str(&json)?;
@@ -223,7 +223,7 @@ impl ProjectMatrix {
         // Rebuild the graph
         matrix.rebuild_graph();
 
-        info!("Matrix loaded successfully with {} files", matrix.files.len());
+        debug!("Matrix loaded successfully with {} files", matrix.files.len());
         Ok(matrix)
     }
 
@@ -351,11 +351,33 @@ impl ProjectMatrix {
         println!("External dependencies: {}", self.external_dependencies.len());
         println!("Languages: {}", self.metadata.plugins_used.join(", "));
 
-        let metrics = self.calculate_metrics();
+        // Show files scanned by language/plugin
+        println!("\n📁 Files scanned:");
+        let mut by_plugin: std::collections::HashMap<String, Vec<&PathBuf>> =
+            std::collections::HashMap::new();
 
-        println!("\n📊 Top coupled files:");
-        for (path, score) in metrics.highly_coupled_files.iter().take(5) {
-            println!("  {} (used by {} files)", path.display(), score);
+        for (path, file_node) in &self.files {
+            by_plugin.entry(file_node.plugin.clone()).or_default().push(path);
+        }
+
+        let mut plugins: Vec<_> = by_plugin.keys().collect();
+        plugins.sort();
+
+        for plugin in plugins {
+            let files_for_plugin = &by_plugin[plugin];
+            println!("  {} ({} files)", plugin.to_uppercase(), files_for_plugin.len());
+
+            // Show first few files for each plugin
+            let mut sorted_files = files_for_plugin.clone();
+            sorted_files.sort();
+            for (i, file_path) in sorted_files.iter().enumerate() {
+                if i < 5 {  // Show first 5 files
+                    println!("    {}", file_path.display());
+                } else if i == 5 {
+                    println!("    ... and {} more", sorted_files.len() - 5);
+                    break;
+                }
+            }
         }
 
         println!();
