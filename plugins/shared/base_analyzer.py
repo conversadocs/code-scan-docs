@@ -3,14 +3,15 @@
 Base class for CSD plugins.
 All language plugins should inherit from this class.
 """
-
+import io
+import typing
 import json
 import sys
 import time
 import hashlib
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Dict, List, Optional, Any, Union
+from typing import Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass, asdict
 
 
@@ -99,7 +100,7 @@ class BaseAnalyzer(ABC):
         self.supported_filenames = []
 
     @abstractmethod
-    def can_analyze(self, file_path: str, content_preview: str) -> tuple[bool, float]:
+    def can_analyze(self, file_path: str, content_preview: str) -> Tuple[bool, float]:
         """
         Check if this plugin can analyze the given file.
 
@@ -166,8 +167,8 @@ class BaseAnalyzer(ABC):
         """Main entry point for plugin execution."""
         try:
             # Configure stdout to be line buffered
-            sys.stdout.reconfigure(line_buffering=True)
-            sys.stderr.reconfigure(line_buffering=True)
+            typing.cast(io.TextIOWrapper, sys.stdout).reconfigure(line_buffering=True)
+            typing.cast(io.TextIOWrapper, sys.stderr).reconfigure(line_buffering=True)
 
             # Read all input from stdin - try different approaches
             try:

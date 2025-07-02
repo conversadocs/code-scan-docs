@@ -23,6 +23,7 @@ scanning:
   ignore_patterns:
     - "config/"
     - "target/"
+    - "tests/"
     - "*.log"
     - "*.md"
     - "LICENSE"

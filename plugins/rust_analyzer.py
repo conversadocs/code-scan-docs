@@ -7,7 +7,7 @@ Analyzes Rust files including .rs files and Rust ecosystem files.
 import re
 import sys
 from pathlib import Path
-from typing import List, Set, Dict, Any, Optional, Tuple
+from typing import List, Dict, Any, Optional, Set, Tuple, Union
 
 # Add the shared directory to the path so we can import base_analyzer
 sys.path.insert(0, str(Path(__file__).parent / "shared"))
@@ -21,7 +21,6 @@ from base_analyzer import (
     PluginInput,
     PluginOutput,
     calculate_complexity,
-    detect_import_type,
 )
 
 
@@ -233,7 +232,7 @@ class RustAnalyzer(BaseAnalyzer):
         self, lines: List[str], start: int, end: int
     ) -> List[str]:
         """Extract function/method calls within a range of lines."""
-        calls = set()
+        calls: Set[str] = set()
 
         # Simple patterns for function calls
         call_patterns = [
@@ -448,7 +447,7 @@ class RustAnalyzer(BaseAnalyzer):
         Simple TOML parser for basic dependency extraction.
         Only handles the subset of TOML we need for Cargo.toml files.
         """
-        result = {}
+        result: Dict[str, Dict[str, Any]] = {}
         current_section = None
 
         for line in content.split("\n"):
@@ -469,19 +468,20 @@ class RustAnalyzer(BaseAnalyzer):
             # Key-value pairs
             if "=" in line and current_section:
                 try:
-                    key, value = line.split("=", 1)
+                    key, value_raw = line.split("=", 1)
                     key = key.strip().strip('"')
-                    value = value.strip()
+                    value_raw = value_raw.strip()
 
+                    value: Union[str, Dict[str, str]]
                     # Clean up the value
-                    if value.startswith('"') and value.endswith('"'):
-                        value = value[1:-1]
-                    elif value.startswith("'") and value.endswith("'"):
-                        value = value[1:-1]
-                    elif value.startswith("{") and value.endswith("}"):
+                    if value_raw.startswith('"') and value_raw.endswith('"'):
+                        value = value_raw[1:-1]
+                    elif value_raw.startswith("'") and value_raw.endswith("'"):
+                        value = value_raw[1:-1]
+                    elif value_raw.startswith("{") and value_raw.endswith("}"):
                         # Simple dict parsing for inline tables
-                        dict_content = value[1:-1]
-                        parsed_dict = {}
+                        dict_content = value_raw[1:-1]
+                        parsed_dict: Dict[str, str] = {}
                         for pair in dict_content.split(","):
                             if "=" in pair:
                                 k, v = pair.split("=", 1)
@@ -489,6 +489,8 @@ class RustAnalyzer(BaseAnalyzer):
                                 v = v.strip().strip('"')
                                 parsed_dict[k] = v
                         value = parsed_dict
+                    else:
+                        value = value_raw
 
                     result[current_section][key] = value
 
@@ -587,7 +589,7 @@ class RustAnalyzer(BaseAnalyzer):
             exports=[],
             relationships=[],
             external_dependencies=dependencies,
-            file_summary=f"Rust Cargo.lock with {len(dependencies)} locked dependencies",
+            file_summary=f"Rust Cargo.lock with {len(dependencies)} locked",
         )
 
 

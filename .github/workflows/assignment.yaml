@@ -8,6 +8,7 @@ permissions: read-all
 
 jobs:
   assign_pr_to_author:
+    name: Assign the PR to the Author
     runs-on: ubuntu-latest
     steps:
       - name: Assign PR to author

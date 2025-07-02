@@ -5,15 +5,16 @@ Analyzes Python files including .py files and Python ecosystem files.
 """
 
 import ast
+import io
 import sys
-
-sys.stdout.reconfigure(line_buffering=True)
+import typing
 import re
 from pathlib import Path
-from typing import List, Set, Dict, Any, Optional, Tuple
+from typing import List, Optional, Tuple
 
 # Add the shared directory to the path so we can import base_analyzer
 sys.path.insert(0, str(Path(__file__).parent / "shared"))
+typing.cast(io.TextIOWrapper, sys.stdout).reconfigure(line_buffering=True)
 
 from base_analyzer import (
     BaseAnalyzer,
@@ -327,8 +328,8 @@ class PythonAnalyzer(BaseAnalyzer):
 
         return imports
 
-    def _extract_exports(self, tree: ast.AST) -> List[str]:
-        """Extract what this module exports (functions, classes defined at module level)."""
+    def _extract_exports(self, tree: ast.Module) -> List[str]:
+        """Extract what this module exports (defined at module level)."""
         exports = []
 
         for node in tree.body:
@@ -447,7 +448,7 @@ class PythonAnalyzer(BaseAnalyzer):
             exports=[],
             relationships=[],
             external_dependencies=dependencies,
-            file_summary=f"Python requirements file with {len(dependencies)} dependencies",
+            file_summary=f"Python requirements with {len(dependencies)} dependencies",
         )
 
     def _analyze_setup_py(self, input_data: PluginInput) -> PluginOutput:
@@ -542,7 +543,7 @@ class PythonAnalyzer(BaseAnalyzer):
             exports=[],
             relationships=[],
             external_dependencies=dependencies,
-            file_summary=f"Python project configuration with {len(dependencies)} dependencies",
+            file_summary=f"Python project config with {len(dependencies)} dependencies",
         )
 
     def _get_decorator_name(self, decorator: ast.AST) -> str:

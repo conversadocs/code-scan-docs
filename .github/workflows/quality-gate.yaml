@@ -13,7 +13,7 @@ permissions: read-all
 jobs:
   security-scan:
     if: ${{ github.event.pull_request.draft == false }}
-    name: Security scan
+    name: Security Scan
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -21,15 +21,17 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
+
       - name: Checkov scan
         uses: bridgecrewio/checkov-action@v12
         with:
           output_format: cli
           output_file_path: console
           quiet: true
+
   rust-tests:
     if: ${{ github.event.pull_request.draft == false }}
-    name: Rust Tests
+    name: Rust Core Tests
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -55,34 +57,30 @@ jobs:
 
       - name: Run tests
         run: cargo test --lib --verbose
-  build-test:
+
+  python-tests:
     if: ${{ github.event.pull_request.draft == false }}
-    name: Rust Build Test
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+    name: Python Plugin Tests
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache dependencies
-        uses: actions/cache@v4
+      - name: Set up Python
+        uses: actions/setup-python@v4
         with:
-          path: |
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-
+          python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: 'tests/python/requirements.txt'
 
-      - name: Build
-        run: cargo build --verbose
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r tests/python/requirements.txt
 
-      - name: Build release
-        run: cargo build --release --verbose
+      - name: Run Python plugin tests
+        run: |
+          pytest tests/python/ -v --tb=short
