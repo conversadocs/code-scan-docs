@@ -51,7 +51,7 @@ repos:
         pass_filenames: false
         stages: [pre-commit]
 
-      # Run tests locally (your main request!)
+      # Run tests locally
       - id: cargo-test
         name: Cargo test (unit tests)
         entry: cargo test --lib
@@ -59,6 +59,45 @@ repos:
         types: [rust]
         pass_filenames: false
         stages: [pre-commit]
+
+      # Python code formatting (auto-fix)
+      - id: python-black
+        name: Python format (black auto-fix)
+        entry: black
+        language: system
+        types: [python]
+        args: [--line-length=88]
+        stages: [pre-commit]
+
+      # Python linting - catches bugs and style issues
+      - id: python-flake8
+        name: Python linting (flake8)
+        entry: flake8
+        language: system
+        types: [python]
+        args:
+          - --max-line-length=88
+          - '--extend-ignore=E203,W503,E402'
+        stages: [pre-commit]
+
+      # Python type checking
+      - id: python-mypy
+        name: Python type checking (mypy)
+        entry: mypy
+        language: system
+        types: [python]
+        args: [--ignore-missing-imports, --no-strict-optional]
+        stages: [pre-commit]
+
+      # Python plugin tests
+      - id: python-tests
+        name: Python plugin tests
+        entry: pytest tests/python/ -v --tb=short
+        language: system
+        types: [python]
+        pass_filenames: false
+        stages: [pre-commit]
+        always_run: true
 
   - repo: https://github.com/commitizen-tools/commitizen
     rev: v3.25.0
