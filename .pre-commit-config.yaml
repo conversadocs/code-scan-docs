@@ -54,7 +54,7 @@ repos:
       # Run tests locally
       - id: cargo-test
         name: Cargo test (unit tests)
-        entry: cargo test --lib
+        entry: cargo test --test '*'
         language: system
         types: [rust]
         pass_filenames: false

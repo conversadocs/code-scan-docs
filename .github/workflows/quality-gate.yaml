@@ -1,4 +1,4 @@
-name: Quality gate
+name: Quality Gate
 on:
   pull_request:
     types:
@@ -56,7 +56,7 @@ jobs:
             ${{ runner.os }}-cargo-
 
       - name: Run tests
-        run: cargo test --lib --verbose
+        run: cargo test --test '*' --verbose
 
   python-tests:
     if: ${{ github.event.pull_request.draft == false }}
