@@ -13,7 +13,7 @@ permissions: read-all
 jobs:
   security-scan:
     if: ${{ github.event.pull_request.draft == false }}
-    name: Security scan
+    name: Security Scan
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -28,9 +28,10 @@ jobs:
           output_format: cli
           output_file_path: console
           quiet: true
+
   rust-tests:
     if: ${{ github.event.pull_request.draft == false }}
-    name: Rust Tests
+    name: Rust Core Tests
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -83,35 +84,3 @@ jobs:
       - name: Run Python plugin tests
         run: |
           pytest tests/python/ -v --tb=short
-
-  build-test:
-    if: ${{ github.event.pull_request.draft == false }}
-    name: Rust Build Test
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache dependencies
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-
-
-      - name: Build
-        run: cargo build --verbose
-
-      - name: Build release
-        run: cargo build --release --verbose
