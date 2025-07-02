@@ -2,7 +2,7 @@ use crate::core::matrix::ProjectMatrix;
 use crate::utils::config::Config;
 use anyhow::Result;
 use ignore::WalkBuilder;
-use log::{debug, warn};
+use log::{debug, info, warn};
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 
@@ -83,10 +83,7 @@ impl ProjectScanner {
         file_info: &FileInfo,
         matrix: &mut ProjectMatrix,
     ) -> Result<crate::core::matrix::FileNode> {
-        debug!(
-            "🚀 Starting plugin analysis for: {}",
-            file_info.path.display()
-        );
+        info!("🚀 Starting analysis for: {}", file_info.path.display());
 
         use crate::plugins::communication::PluginCommunicator;
         use crate::plugins::interface::PluginInput;
@@ -106,7 +103,7 @@ impl ProjectScanner {
         // Resolve plugin path
         let plugin_path = match &plugin_config.source {
             crate::utils::config::PluginSource::Builtin { name } => {
-                PathBuf::from(format!("plugins/{name}_analyzer.py"))
+                PathBuf::from(format!("plugins/input/{name}_analyzer.py"))
             }
             _ => {
                 // TODO: Handle other plugin sources
@@ -168,8 +165,8 @@ impl ProjectScanner {
         debug!("🔄 Starting plugin communication...");
         match communicator.analyze(plugin_input).await {
             Ok(plugin_output) => {
-                debug!(
-                    "✅ Plugin analysis successful for: {} with {} elements",
+                info!(
+                    "✅ Analysis successful for: {} with {} elements",
                     file_info.path.display(),
                     plugin_output.elements.len()
                 );

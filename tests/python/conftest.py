@@ -17,8 +17,9 @@ import pytest
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 PLUGINS_DIR = PROJECT_ROOT / "plugins"
 SHARED_DIR = PLUGINS_DIR / "shared"
+INPUT_DIR = PLUGINS_DIR / "input"
 
-sys.path.insert(0, str(PLUGINS_DIR))
+sys.path.insert(0, str(INPUT_DIR))
 sys.path.insert(0, str(SHARED_DIR))
 
 
