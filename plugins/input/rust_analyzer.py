@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import List, Dict, Any, Optional, Set, Tuple, Union
 
 # Add the shared directory to the path so we can import base_analyzer
-sys.path.insert(0, str(Path(__file__).parent / "shared"))
+sys.path.insert(0, str(Path(__file__).parent / "../shared"))
 
 from base_analyzer import (
     BaseAnalyzer,

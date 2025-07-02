@@ -51,7 +51,9 @@ impl PluginManager {
             PluginSource::Local { path } => Ok(PathBuf::from(path)),
             PluginSource::Builtin { name: plugin_name } => {
                 // Built-in plugins are in the plugins/ directory
-                Ok(PathBuf::from(format!("plugins/{plugin_name}_analyzer.py")))
+                Ok(PathBuf::from(format!(
+                    "plugins/input/{plugin_name}_analyzer.py"
+                )))
             }
             PluginSource::GitHub { repo, version } => {
                 // TODO: Implement GitHub plugin downloading

@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import List, Optional, Tuple
 
 # Add the shared directory to the path so we can import base_analyzer
-sys.path.insert(0, str(Path(__file__).parent / "shared"))
+sys.path.insert(0, str(Path(__file__).parent / "../shared"))
 typing.cast(io.TextIOWrapper, sys.stdout).reconfigure(line_buffering=True)
 
 from base_analyzer import (
