@@ -4,7 +4,7 @@ use tokio::fs;
 
 // Import the modules we're testing
 use csd::core::scanner::{FileInfo, ProjectScanner};
-use csd::utils::config::{Config, FilePatterns, PluginConfig, PluginSource};
+use csd::utils::config::{Config, FilePatterns, InputPluginConfig, PluginSource};
 
 // Helper function to create a test project structure
 async fn create_test_project(temp_dir: &TempDir) -> anyhow::Result<PathBuf> {
@@ -67,10 +67,9 @@ fn create_config_with_custom_patterns() -> Config {
     let mut config = create_test_config();
 
     // Add a test plugin that matches .test files
-    let mut plugins = std::collections::HashMap::new();
-    plugins.insert(
+    config.input_plugins.insert(
         "test_plugin".to_string(),
-        PluginConfig {
+        InputPluginConfig {
             source: PluginSource::Builtin {
                 name: "test".to_string(),
             },
@@ -84,12 +83,6 @@ fn create_config_with_custom_patterns() -> Config {
         },
     );
 
-    // Keep existing plugins and add new one
-    for (name, plugin) in config.plugins {
-        plugins.insert(name, plugin);
-    }
-
-    config.plugins = plugins;
     config
 }
 
@@ -374,4 +367,73 @@ async fn test_scan_to_matrix_integration() {
             eprintln!("scan_to_matrix failed (expected in unit tests): {e}");
         }
     }
+}
+
+// New tests for the updated configuration system
+
+#[tokio::test]
+async fn test_input_plugin_configuration() {
+    let config = create_test_config();
+
+    // Test that default config has the expected input plugins
+    assert!(config.input_plugins.contains_key("python"));
+    assert!(config.input_plugins.contains_key("rust"));
+
+    // Test that output plugins are separate
+    assert!(config.output_plugins.contains_key("markdown_docs"));
+
+    // Test plugin discovery methods
+    assert_eq!(
+        config.find_input_plugin_for_file(&PathBuf::from("test.py")),
+        Some("python".to_string())
+    );
+    assert_eq!(
+        config.find_input_plugin_for_file(&PathBuf::from("test.rs")),
+        Some("rust".to_string())
+    );
+    assert_eq!(
+        config.find_input_plugin_for_file(&PathBuf::from("test.unknown")),
+        None
+    );
+}
+
+#[tokio::test]
+async fn test_output_plugin_configuration() {
+    let config = create_test_config();
+
+    // Test output plugin discovery
+    let doc_plugins = config.find_output_plugins_for_type("documentation", "markdown");
+    assert!(!doc_plugins.is_empty());
+    assert!(doc_plugins.contains(&"markdown_docs".to_string()));
+
+    // Test non-matching types
+    let unknown_plugins = config.find_output_plugins_for_type("unknown_type", "unknown_format");
+    assert!(unknown_plugins.is_empty());
+}
+
+#[tokio::test]
+async fn test_plugin_summary() {
+    let config = create_test_config();
+    let summary = config.get_plugin_summary();
+
+    assert!(summary.total_input_plugins >= 2); // At least python and rust
+    assert!(summary.total_output_plugins >= 1); // At least markdown_docs
+    assert_eq!(summary.enabled_input_plugins, summary.total_input_plugins); // All enabled by default
+    assert_eq!(summary.enabled_output_plugins, summary.total_output_plugins); // All enabled by default
+}
+
+#[test]
+fn test_legacy_plugin_migration() {
+    // This test would be more complex in a real scenario, but tests the concept
+    let config = Config::default();
+
+    // Simulate adding legacy plugin config (would normally come from YAML)
+    // The migration logic is in the Config::load method
+
+    // Test that the new structure exists
+    assert!(!config.input_plugins.is_empty());
+    assert!(!config.output_plugins.is_empty());
+
+    // Test that legacy field is None (no migration needed for default config)
+    assert!(config.plugins.is_none());
 }

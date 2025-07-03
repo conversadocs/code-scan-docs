@@ -8,8 +8,12 @@ use tokio::fs;
 use tokio::process::Command;
 use uuid::Uuid;
 
-use crate::plugins::interface::{PluginInput, PluginMessage, PluginResponse};
+use crate::plugins::interface::{
+    InputPluginInterface, OutputPluginInput, OutputPluginInterface, OutputPluginResult, PluginInfo,
+    PluginInput, PluginInterface, PluginMessage, PluginResponse, PluginType,
+};
 
+/// Base plugin communicator with common functionality
 pub struct PluginCommunicator {
     plugin_path: PathBuf,
     python_executable: String,
@@ -18,12 +22,11 @@ pub struct PluginCommunicator {
 
 impl PluginCommunicator {
     pub fn new(plugin_path: PathBuf) -> Self {
-        // Default cache directory
         let cache_dir = PathBuf::from(".csd_cache");
 
         Self {
             plugin_path,
-            python_executable: "python".to_string(), // Use python (works with pyenv)
+            python_executable: "python".to_string(),
             cache_dir,
         }
     }
@@ -39,8 +42,6 @@ impl PluginCommunicator {
     }
 
     pub fn with_python_auto_detect(mut self) -> Self {
-        // Try to detect the best Python executable
-        // Priority: python (pyenv), python3, python
         let candidates = ["python", "python3"];
 
         for candidate in candidates.iter() {
@@ -73,14 +74,11 @@ impl PluginCommunicator {
     pub async fn send_message(&self, message: PluginMessage) -> Result<PluginResponse> {
         debug!("Sending message to plugin: {}", self.plugin_path.display());
 
-        // Ensure cache directory exists
         self.ensure_cache_dir().await?;
 
-        // Create temporary input file
         let input_filename = format!("plugin_input_{}.json", Uuid::new_v4());
         let input_file_path = self.cache_dir.join(&input_filename);
 
-        // Write message to temporary file
         let message_json =
             serde_json::to_string_pretty(&message).context("Failed to serialize plugin message")?;
 
@@ -90,7 +88,6 @@ impl PluginCommunicator {
 
         debug!("Wrote plugin input to: {}", input_file_path.display());
 
-        // Run the plugin with the input file
         let result = tokio::time::timeout(Duration::from_secs(30), async {
             let input_file =
                 std::fs::File::open(&input_file_path).context("Failed to open input file")?;
@@ -107,7 +104,6 @@ impl PluginCommunicator {
                     self.plugin_path.display()
                 ))?;
 
-            // Read stdout and stderr
             let output = child
                 .wait_with_output()
                 .await
@@ -117,7 +113,6 @@ impl PluginCommunicator {
         })
         .await;
 
-        // Clean up input file
         let _ = fs::remove_file(&input_file_path).await;
 
         let output = match result {
@@ -128,7 +123,6 @@ impl PluginCommunicator {
             }
         };
 
-        // Convert to strings
         let stdout_str = String::from_utf8_lossy(&output.stdout);
         let stderr_str = String::from_utf8_lossy(&output.stderr);
 
@@ -153,7 +147,6 @@ impl PluginCommunicator {
             ));
         }
 
-        // Parse the response - it should be a single JSON line
         let response_line = stdout_str
             .lines()
             .find(|line| !line.trim().is_empty() && line.trim().starts_with('{'))
@@ -166,7 +159,6 @@ impl PluginCommunicator {
 
         debug!("Plugin JSON response: {response_line}");
 
-        // Parse the response
         let response: PluginResponse = serde_json::from_str(response_line.trim()).context(
             format!("Failed to parse plugin response JSON: {response_line}"),
         )?;
@@ -174,21 +166,137 @@ impl PluginCommunicator {
         Ok(response)
     }
 
-    /// Check if this plugin can analyze the given file
-    pub async fn can_analyze(&self, file_path: &Path, content_preview: &str) -> Result<bool> {
-        let message = PluginMessage::CanAnalyze {
-            file_path: file_path.to_path_buf(),
-            content_preview: content_preview.chars().take(500).collect(), // First 500 chars
-        };
+    /// Get plugin information with type identification
+    pub async fn get_info(&self) -> Result<PluginInfo> {
+        let message = PluginMessage::GetInfo;
 
         match self.send_message(message).await? {
+            PluginResponse::Info {
+                name,
+                version,
+                plugin_type,
+                supported_extensions,
+                supported_filenames,
+                supported_output_types,
+                supported_formats,
+            } => Ok(PluginInfo {
+                name,
+                version,
+                plugin_type,
+                supported_extensions,
+                supported_filenames,
+                supported_output_types,
+                supported_formats,
+            }),
+            PluginResponse::Error { message, details } => Err(anyhow::anyhow!(
+                "Plugin info request failed: {} {:?}",
+                message,
+                details
+            )),
+            _ => Err(anyhow::anyhow!(
+                "Plugin returned unexpected response to get_info"
+            )),
+        }
+    }
+
+    /// Clean up old cache files
+    pub async fn cleanup_cache(&self, max_age_hours: u64) -> Result<()> {
+        use std::time::{Duration, SystemTime};
+
+        let cutoff_time = SystemTime::now() - Duration::from_secs(max_age_hours * 3600);
+
+        let mut dir_entries = fs::read_dir(&self.cache_dir)
+            .await
+            .context("Failed to read cache directory")?;
+
+        while let Some(entry) = dir_entries.next_entry().await? {
+            let path = entry.path();
+            if path.extension().and_then(|s| s.to_str()) == Some("json") {
+                if let Ok(metadata) = entry.metadata().await {
+                    if let Ok(modified) = metadata.modified() {
+                        if modified < cutoff_time {
+                            if let Err(e) = fs::remove_file(&path).await {
+                                warn!("Failed to remove old cache file {}: {}", path.display(), e);
+                            } else {
+                                debug!("Removed old cache file: {}", path.display());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+}
+
+#[async_trait::async_trait]
+impl PluginInterface for PluginCommunicator {
+    async fn get_info(&self) -> Result<PluginInfo> {
+        self.get_info().await
+    }
+
+    async fn get_plugin_type(&self) -> Result<PluginType> {
+        let info = self.get_info().await?;
+        Ok(info.plugin_type)
+    }
+}
+
+/// Specialized communicator for input plugins (code analyzers)
+pub struct InputPluginCommunicator {
+    base: PluginCommunicator,
+}
+
+impl InputPluginCommunicator {
+    pub fn new(plugin_path: PathBuf) -> Self {
+        Self {
+            base: PluginCommunicator::new(plugin_path),
+        }
+    }
+
+    pub fn with_cache_dir(mut self, cache_dir: PathBuf) -> Self {
+        self.base = self.base.with_cache_dir(cache_dir);
+        self
+    }
+
+    pub fn with_python_executable(mut self, executable: String) -> Self {
+        self.base = self.base.with_python_executable(executable);
+        self
+    }
+
+    pub fn with_python_auto_detect(mut self) -> Self {
+        self.base = self.base.with_python_auto_detect();
+        self
+    }
+}
+
+#[async_trait::async_trait]
+impl PluginInterface for InputPluginCommunicator {
+    async fn get_info(&self) -> Result<PluginInfo> {
+        self.base.get_info().await
+    }
+
+    async fn get_plugin_type(&self) -> Result<PluginType> {
+        self.base.get_plugin_type().await
+    }
+}
+
+#[async_trait::async_trait]
+impl InputPluginInterface for InputPluginCommunicator {
+    async fn can_analyze(&self, file_path: &Path, content_preview: &str) -> Result<bool> {
+        let message = PluginMessage::CanAnalyze {
+            file_path: file_path.to_path_buf(),
+            content_preview: content_preview.chars().take(500).collect(),
+        };
+
+        match self.base.send_message(message).await? {
             PluginResponse::CanAnalyze {
                 can_analyze,
                 confidence: _,
             } => Ok(can_analyze),
             PluginResponse::Error { message, details } => {
                 error!("Plugin error during can_analyze: {message} {details:?}");
-                Ok(false) // If plugin errors, assume it can't analyze
+                Ok(false)
             }
             _ => {
                 warn!("Plugin returned unexpected response to can_analyze");
@@ -197,20 +305,15 @@ impl PluginCommunicator {
         }
     }
 
-    /// Analyze a file with this plugin using file-based communication
-    pub async fn analyze(
-        &self,
-        input: PluginInput,
-    ) -> Result<crate::plugins::interface::PluginOutput> {
+    async fn analyze(&self, input: PluginInput) -> Result<crate::plugins::interface::PluginOutput> {
         let message = PluginMessage::Analyze { input };
 
-        match self.send_message(message).await? {
+        match self.base.send_message(message).await? {
             PluginResponse::Success {
                 cache_file,
                 processing_time_ms,
             } => {
-                // Read the analysis result from the cache file
-                let cache_file_path = self.cache_dir.join(&cache_file);
+                let cache_file_path = self.base.cache_dir.join(&cache_file);
 
                 debug!(
                     "Reading analysis result from cache file: {}",
@@ -240,61 +343,124 @@ impl PluginCommunicator {
             )),
         }
     }
+}
 
-    /// Get plugin information
-    pub async fn get_info(&self) -> Result<crate::plugins::interface::PluginInfo> {
-        let message = PluginMessage::GetInfo;
+/// Specialized communicator for output plugins (documentation generators, etc.)
+pub struct OutputPluginCommunicator {
+    base: PluginCommunicator,
+}
 
-        match self.send_message(message).await? {
-            PluginResponse::Info {
-                name,
-                version,
-                supported_extensions,
-                supported_filenames,
-            } => Ok(crate::plugins::interface::PluginInfo {
-                name,
-                version,
-                supported_extensions,
-                supported_filenames,
-            }),
+impl OutputPluginCommunicator {
+    pub fn new(plugin_path: PathBuf) -> Self {
+        Self {
+            base: PluginCommunicator::new(plugin_path),
+        }
+    }
+
+    pub fn with_cache_dir(mut self, cache_dir: PathBuf) -> Self {
+        self.base = self.base.with_cache_dir(cache_dir);
+        self
+    }
+
+    pub fn with_python_executable(mut self, executable: String) -> Self {
+        self.base = self.base.with_python_executable(executable);
+        self
+    }
+
+    pub fn with_python_auto_detect(mut self) -> Self {
+        self.base = self.base.with_python_auto_detect();
+        self
+    }
+}
+
+#[async_trait::async_trait]
+impl PluginInterface for OutputPluginCommunicator {
+    async fn get_info(&self) -> Result<PluginInfo> {
+        self.base.get_info().await
+    }
+
+    async fn get_plugin_type(&self) -> Result<PluginType> {
+        self.base.get_plugin_type().await
+    }
+}
+
+#[async_trait::async_trait]
+impl OutputPluginInterface for OutputPluginCommunicator {
+    async fn can_generate(&self, output_type: &str, format: &str) -> Result<bool> {
+        let message = PluginMessage::CanGenerate {
+            output_type: output_type.to_string(),
+            format: format.to_string(),
+        };
+
+        match self.base.send_message(message).await? {
+            PluginResponse::CanGenerate {
+                can_generate,
+                confidence: _,
+            } => Ok(can_generate),
+            PluginResponse::Error { message, details } => {
+                error!("Plugin error during can_generate: {message} {details:?}");
+                Ok(false)
+            }
+            _ => {
+                warn!("Plugin returned unexpected response to can_generate");
+                Ok(false)
+            }
+        }
+    }
+
+    async fn generate(&self, input: OutputPluginInput) -> Result<OutputPluginResult> {
+        let message = PluginMessage::Generate { input };
+
+        match self.base.send_message(message).await? {
+            PluginResponse::OutputSuccess { result } => {
+                debug!(
+                    "Output plugin generation successful: {} outputs",
+                    result.outputs.len()
+                );
+                Ok(result)
+            }
             PluginResponse::Error { message, details } => Err(anyhow::anyhow!(
-                "Plugin info request failed: {} {:?}",
+                "Plugin generation failed: {} {:?}",
                 message,
                 details
             )),
             _ => Err(anyhow::anyhow!(
-                "Plugin returned unexpected response to get_info"
+                "Plugin returned unexpected response to generate"
             )),
         }
     }
 
-    /// Clean up old cache files (optional utility method)
-    pub async fn cleanup_cache(&self, max_age_hours: u64) -> Result<()> {
-        use std::time::{Duration, SystemTime};
+    async fn get_supported_output_types(&self) -> Result<Vec<String>> {
+        let info = self.base.get_info().await?;
+        Ok(info.supported_output_types.unwrap_or_default())
+    }
 
-        let cutoff_time = SystemTime::now() - Duration::from_secs(max_age_hours * 3600);
+    async fn get_supported_formats(&self) -> Result<Vec<String>> {
+        let info = self.base.get_info().await?;
+        Ok(info.supported_formats.unwrap_or_default())
+    }
+}
 
-        let mut dir_entries = fs::read_dir(&self.cache_dir)
-            .await
-            .context("Failed to read cache directory")?;
+// Legacy compatibility - maintain the original PluginCommunicator for existing code
+impl PluginCommunicator {
+    /// Legacy method for backward compatibility
+    pub async fn can_analyze(&self, file_path: &Path, content_preview: &str) -> Result<bool> {
+        let input_comm = InputPluginCommunicator::new(self.plugin_path.clone())
+            .with_cache_dir(self.cache_dir.clone())
+            .with_python_executable(self.python_executable.clone());
 
-        while let Some(entry) = dir_entries.next_entry().await? {
-            let path = entry.path();
-            if path.extension().and_then(|s| s.to_str()) == Some("json") {
-                if let Ok(metadata) = entry.metadata().await {
-                    if let Ok(modified) = metadata.modified() {
-                        if modified < cutoff_time {
-                            if let Err(e) = fs::remove_file(&path).await {
-                                warn!("Failed to remove old cache file {}: {}", path.display(), e);
-                            } else {
-                                debug!("Removed old cache file: {}", path.display());
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        input_comm.can_analyze(file_path, content_preview).await
+    }
 
-        Ok(())
+    /// Legacy method for backward compatibility
+    pub async fn analyze(
+        &self,
+        input: PluginInput,
+    ) -> Result<crate::plugins::interface::PluginOutput> {
+        let input_comm = InputPluginCommunicator::new(self.plugin_path.clone())
+            .with_cache_dir(self.cache_dir.clone())
+            .with_python_executable(self.python_executable.clone());
+
+        input_comm.analyze(input).await
     }
 }

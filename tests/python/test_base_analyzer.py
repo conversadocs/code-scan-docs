@@ -441,9 +441,12 @@ class TestBaseAnalyzer:
 
         expected = {
             "name": "TestAnalyzer",
+            "plugin_type": "input",
             "version": "2.0.0",
             "supported_extensions": [".test"],
             "supported_filenames": ["test.config"],
+            "supported_formats": None,
+            "supported_output_types": None,
         }
 
         assert info == expected

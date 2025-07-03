@@ -4,6 +4,7 @@ use std::path::PathBuf;
 
 use crate::cli::args::{Args, Command};
 use crate::core::scanner::ProjectScanner;
+use crate::plugins::interface::{OutputPluginInput, OutputPluginInterface}; // Added missing imports
 use crate::plugins::manager::PluginManager;
 use crate::utils::config::Config;
 
@@ -99,35 +100,177 @@ async fn handle_scan(
 
     info!("Matrix build complete. Use 'csd quality', 'csd docs', or other commands to analyze the matrix.");
 
-    // Note: --no-llm and --include-tests flags are ignored for scan command
-    // Those operations happen in separate commands that use the cached matrix
-
     Ok(())
 }
 
 async fn handle_quality(
-    _matrix: Option<PathBuf>,
+    matrix: Option<PathBuf>,
     _metrics: Vec<crate::cli::args::QualityMetric>,
-    _config: &Config,
+    config: &Config,
 ) -> Result<()> {
     debug!("Analyzing code quality...");
 
-    // TODO: Implement quality analysis
+    let matrix_path = matrix.unwrap_or_else(|| PathBuf::from(".csd_cache/matrix.json"));
+
+    if !matrix_path.exists() {
+        return Err(anyhow::anyhow!(
+            "Matrix file not found: {}. Run 'csd scan' first.",
+            matrix_path.display()
+        ));
+    }
+
+    // Find quality analysis output plugins
+    let quality_plugins = config.find_output_plugins_for_type("quality_report", "json");
+
+    if quality_plugins.is_empty() {
+        println!("No quality analysis plugins configured. Available output plugins:");
+        for (name, plugin_config) in config.get_enabled_output_plugins() {
+            println!(
+                "  {} - Types: {:?}, Formats: {:?}",
+                name, plugin_config.output_types, plugin_config.formats
+            );
+        }
+        return Ok(());
+    }
+
+    println!("Quality analysis functionality will be implemented using output plugins:");
+    for plugin_name in &quality_plugins {
+        println!("  - {plugin_name}");
+    }
+
+    // TODO: Implement quality analysis using output plugins
     println!("Quality analysis functionality will be implemented here");
 
     Ok(())
 }
 
 async fn handle_docs(
-    _matrix: Option<PathBuf>,
-    _format: crate::cli::args::DocFormat,
-    _output_dir: Option<PathBuf>,
-    _config: &Config,
+    matrix: Option<PathBuf>,
+    format: crate::cli::args::DocFormat,
+    output_dir: Option<PathBuf>,
+    config: &Config,
 ) -> Result<()> {
     debug!("Generating documentation...");
 
-    // TODO: Implement documentation generation
-    println!("Documentation generation functionality will be implemented here");
+    let matrix_path = matrix.unwrap_or_else(|| PathBuf::from(".csd_cache/matrix.json"));
+    let output_directory = output_dir.unwrap_or_else(|| PathBuf::from(&config.output_dir));
+
+    if !matrix_path.exists() {
+        return Err(anyhow::anyhow!(
+            "Matrix file not found: {}. Run 'csd scan' first.",
+            matrix_path.display()
+        ));
+    }
+
+    // Convert DocFormat to string
+    let format_str = match format {
+        crate::cli::args::DocFormat::Markdown => "markdown",
+        crate::cli::args::DocFormat::Html => "html",
+        crate::cli::args::DocFormat::Pdf => "pdf",
+    };
+
+    // Find documentation output plugins that support the requested format
+    let doc_plugins = config.find_output_plugins_for_type("documentation", format_str);
+
+    if doc_plugins.is_empty() {
+        println!("No documentation plugins found for format '{format_str}'. Available plugins:");
+        for (name, plugin_config) in config.get_enabled_output_plugins() {
+            if plugin_config
+                .output_types
+                .contains(&"documentation".to_string())
+            {
+                println!("  {} - Formats: {:?}", name, plugin_config.formats);
+            }
+        }
+        return Ok(());
+    }
+
+    info!("Generating documentation using plugins: {doc_plugins:?}");
+
+    // Use the first available plugin for now
+    let plugin_name = &doc_plugins[0];
+    let plugin_config = config.get_output_plugin(plugin_name).unwrap();
+
+    // Create the output directory
+    tokio::fs::create_dir_all(&output_directory).await?;
+
+    // Set up plugin communication
+    use crate::plugins::communication::OutputPluginCommunicator;
+
+    // Resolve plugin path
+    let plugin_path = match &plugin_config.source {
+        crate::utils::config::PluginSource::Builtin { name } => {
+            PathBuf::from(format!("plugins/output/{name}.py"))
+        }
+        crate::utils::config::PluginSource::Local { path } => PathBuf::from(path),
+        _ => {
+            return Err(anyhow::anyhow!(
+                "Plugin source type not yet supported: {:?}",
+                plugin_config.source
+            ));
+        }
+    };
+
+    if !plugin_path.exists() {
+        return Err(anyhow::anyhow!(
+            "Output plugin file not found: {}",
+            plugin_path.display()
+        ));
+    }
+
+    // Create plugin input
+    let plugin_input = OutputPluginInput {
+        matrix_path: matrix_path.clone(),
+        project_root: std::env::current_dir()?,
+        output_dir: output_directory.clone(),
+        cache_dir: ".csd_cache".to_string(),
+        plugin_config: plugin_config
+            .config
+            .as_ref()
+            .map(|v| serde_json::to_value(v).unwrap_or(serde_json::Value::Null)),
+        format_options: serde_json::json!({
+            "format": format_str,
+            "output_type": "documentation"
+        }),
+    };
+
+    // Create and configure communicator
+    let mut communicator =
+        OutputPluginCommunicator::new(plugin_path).with_cache_dir(PathBuf::from(".csd_cache"));
+
+    if let Some(ref python_exe) = config.python_executable {
+        communicator = communicator.with_python_executable(python_exe.clone());
+    } else {
+        communicator = communicator.with_python_auto_detect();
+    }
+
+    // Generate documentation
+    match communicator.generate(plugin_input).await {
+        Ok(result) => {
+            info!("Documentation generated successfully!");
+            println!(
+                "📚 Documentation generated by {} v{}",
+                result.plugin_name, result.plugin_version
+            );
+            println!("📁 Output directory: {}", output_directory.display());
+            println!("📄 Generated {} files:", result.outputs.len());
+
+            for output in &result.outputs {
+                let size_kb = output.size_bytes as f64 / 1024.0;
+                println!(
+                    "   {} ({:.1} KB) - {}",
+                    output.output_path.display(),
+                    size_kb,
+                    output.content_type
+                );
+            }
+
+            println!("⏱️  Processing time: {}ms", result.processing_time_ms);
+        }
+        Err(e) => {
+            return Err(anyhow::anyhow!("Documentation generation failed: {}", e));
+        }
+    }
 
     Ok(())
 }
@@ -139,26 +282,81 @@ async fn handle_plugins(detailed: bool, config: &Config) -> Result<()> {
     let plugins = plugin_manager.discover_plugins().await?;
 
     if detailed {
-        for plugin in plugins {
-            println!("Plugin: {}", plugin.name);
-            println!("  Path: {}", plugin.path.display());
-            println!("  Extensions: {}", plugin.extensions.join(", "));
-            println!("  Filenames: {}", plugin.filenames.join(", "));
-            println!("  Source: {:?}", plugin.source);
-            println!("  Enabled: {}", plugin.enabled);
-            println!();
+        println!("=== Input Plugins (Code Analyzers) ===");
+        let input_plugins: Vec<_> = plugins
+            .iter()
+            .filter(|p| p.plugin_type == "input")
+            .collect();
+
+        if input_plugins.is_empty() {
+            println!("No input plugins configured.");
+        } else {
+            for plugin in input_plugins {
+                println!("Plugin: {}", plugin.name);
+                println!("  Type: Input (Code Analyzer)");
+                println!("  Path: {}", plugin.path.display());
+                println!("  Extensions: {}", plugin.extensions.join(", "));
+                println!("  Filenames: {}", plugin.filenames.join(", "));
+                println!("  Source: {:?}", plugin.source);
+                println!("  Enabled: {}", plugin.enabled);
+                println!();
+            }
+        }
+
+        println!("=== Output Plugins (Documentation Generators, etc.) ===");
+        let output_plugins: Vec<_> = plugins
+            .iter()
+            .filter(|p| p.plugin_type == "output")
+            .collect();
+
+        if output_plugins.is_empty() {
+            println!("No output plugins configured.");
+        } else {
+            for plugin in output_plugins {
+                println!("Plugin: {}", plugin.name);
+                println!("  Type: Output (Generator)");
+                println!("  Path: {}", plugin.path.display());
+                println!("  Output Types: {}", plugin.output_types.join(", "));
+                println!("  Formats: {}", plugin.formats.join(", "));
+                println!("  Source: {:?}", plugin.source);
+                println!("  Enabled: {}", plugin.enabled);
+                println!();
+            }
         }
     } else {
-        for plugin in plugins {
+        println!("Input Plugins:");
+        for plugin in plugins.iter().filter(|p| p.plugin_type == "input") {
             let all_patterns: Vec<String> = plugin
                 .extensions
                 .iter()
                 .chain(plugin.filenames.iter())
                 .cloned()
                 .collect();
-            println!("{} - {}", plugin.name, all_patterns.join(", "));
+            println!("  {} - {}", plugin.name, all_patterns.join(", "));
+        }
+
+        println!("\nOutput Plugins:");
+        for plugin in plugins.iter().filter(|p| p.plugin_type == "output") {
+            println!(
+                "  {} - Types: {}, Formats: {}",
+                plugin.name,
+                plugin.output_types.join(","),
+                plugin.formats.join(",")
+            );
         }
     }
+
+    // Show configuration summary
+    let summary = config.get_plugin_summary();
+    println!("\n📊 Plugin Summary:");
+    println!(
+        "  Input plugins: {} enabled / {} total",
+        summary.enabled_input_plugins, summary.total_input_plugins
+    );
+    println!(
+        "  Output plugins: {} enabled / {} total",
+        summary.enabled_output_plugins, summary.total_output_plugins
+    );
 
     Ok(())
 }
@@ -177,7 +375,20 @@ async fn handle_init(force: bool) -> Result<()> {
     let default_config = Config::default();
     default_config.save(&config_path).await?;
 
-    debug!("Created configuration file: {}", config_path.display());
+    println!("✅ Created configuration file: {}", config_path.display());
+
+    let summary = default_config.get_plugin_summary();
+    println!("📦 Default configuration includes:");
+    println!(
+        "  {} input plugins: {}",
+        summary.total_input_plugins,
+        summary.input_plugin_names.join(", ")
+    );
+    println!(
+        "  {} output plugins: {}",
+        summary.total_output_plugins,
+        summary.output_plugin_names.join(", ")
+    );
 
     Ok(())
 }

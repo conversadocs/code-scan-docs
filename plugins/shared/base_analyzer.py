@@ -91,11 +91,12 @@ class PluginInput:
 
 
 class BaseAnalyzer(ABC):
-    """Base class for all CSD plugins."""
+    """Base class for all CSD input plugins (code analyzers)."""
 
     def __init__(self):
         self.name = self.__class__.__name__
         self.version = "1.0.0"
+        self.plugin_type = "input"  # NEW: Plugin type identification
         self.supported_extensions = []
         self.supported_filenames = []
 
@@ -127,12 +128,15 @@ class BaseAnalyzer(ABC):
         pass
 
     def get_info(self) -> Dict[str, Any]:
-        """Return plugin information."""
+        """Return plugin information with type identification."""
         return {
             "name": self.name,
             "version": self.version,
+            "plugin_type": self.plugin_type,  # NEW: Plugin type identification
             "supported_extensions": self.supported_extensions,
             "supported_filenames": self.supported_filenames,
+            "supported_output_types": None,  # Input plugins don't generate output
+            "supported_formats": None,  # Input plugins don't generate output
         }
 
     def _generate_cache_filename(self, input_data: PluginInput) -> str:
