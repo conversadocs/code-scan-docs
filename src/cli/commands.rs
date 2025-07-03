@@ -13,13 +13,13 @@ pub async fn handle_command(args: Args) -> Result<()> {
     let config = load_config(&args).await?;
 
     match args.command {
-        Command::Scan {
+        Command::Init {
             path,
             output,
             output_file,
             no_llm,
             include_tests,
-        } => handle_scan(path, output, output_file, no_llm, include_tests, &config).await,
+        } => handle_init(path, output, output_file, no_llm, include_tests, &config).await,
         Command::Quality { matrix, metrics } => handle_quality(matrix, metrics, &config).await,
         Command::Docs {
             matrix,
@@ -27,7 +27,7 @@ pub async fn handle_command(args: Args) -> Result<()> {
             output_dir,
         } => handle_docs(matrix, format, output_dir, &config).await,
         Command::Plugins { detailed } => handle_plugins(detailed, &config).await,
-        Command::Init { force } => handle_init(force).await,
+        Command::Config { force } => handle_config(force).await,
     }
 }
 
@@ -44,7 +44,7 @@ async fn load_config(args: &Args) -> Result<Config> {
     }
 }
 
-async fn handle_scan(
+async fn handle_init(
     path: Option<PathBuf>,
     output: crate::cli::args::OutputFormat,
     output_file: Option<PathBuf>,
@@ -52,7 +52,7 @@ async fn handle_scan(
     _include_tests: bool,
     config: &Config,
 ) -> Result<()> {
-    info!("Building project matrix...");
+    info!("Initializing project and building matrix...");
 
     let project_path = path.unwrap_or_else(|| PathBuf::from("."));
 
@@ -98,7 +98,7 @@ async fn handle_scan(
         }
     }
 
-    info!("Matrix build complete. Use 'csd quality', 'csd docs', or other commands to analyze the matrix.");
+    info!("Project initialized successfully. Use 'csd quality', 'csd docs', or other commands to analyze the matrix.");
 
     Ok(())
 }
@@ -114,7 +114,7 @@ async fn handle_quality(
 
     if !matrix_path.exists() {
         return Err(anyhow::anyhow!(
-            "Matrix file not found: {}. Run 'csd scan' first.",
+            "Matrix file not found: {}. Run 'csd init' first.",
             matrix_path.display()
         ));
     }
@@ -157,7 +157,7 @@ async fn handle_docs(
 
     if !matrix_path.exists() {
         return Err(anyhow::anyhow!(
-            "Matrix file not found: {}. Run 'csd scan' first.",
+            "Matrix file not found: {}. Run 'csd init' first.",
             matrix_path.display()
         ));
     }
@@ -361,7 +361,7 @@ async fn handle_plugins(detailed: bool, config: &Config) -> Result<()> {
     Ok(())
 }
 
-async fn handle_init(force: bool) -> Result<()> {
+async fn handle_config(force: bool) -> Result<()> {
     debug!("Initializing configuration...");
 
     let config_path = PathBuf::from(".csdrc.yaml");
