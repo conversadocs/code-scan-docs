@@ -27,8 +27,8 @@ pub struct Args {
 
 #[derive(Subcommand, Debug, Clone)]
 pub enum Command {
-    /// Scan a project and build the analysis matrix
-    Scan {
+    /// Initialize project analysis and build the matrix
+    Init {
         /// Path to the project directory
         #[arg(value_name = "PATH")]
         path: Option<PathBuf>,
@@ -84,7 +84,7 @@ pub enum Command {
     },
 
     /// Initialize a new configuration file
-    Init {
+    Config {
         /// Force overwrite existing configuration
         #[arg(long)]
         force: bool,

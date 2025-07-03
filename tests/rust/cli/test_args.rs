@@ -17,11 +17,11 @@ mod basic_parsing_tests {
     use super::*;
 
     #[test]
-    fn test_scan_command_basic() {
-        let args = parse_args_success(&["csd", "scan"]);
+    fn test_init_command_basic() {
+        let args = parse_args_success(&["csd", "init"]);
 
         match args.command {
-            Command::Scan {
+            Command::Init {
                 path,
                 output,
                 output_file,
@@ -34,7 +34,7 @@ mod basic_parsing_tests {
                 assert!(!no_llm); // Default: LLM enabled
                 assert!(!include_tests); // Default: tests not included
             }
-            _ => panic!("Expected Scan command"),
+            _ => panic!("Expected Init command"),
         }
 
         assert!(!args.verbose); // Default: not verbose
@@ -43,22 +43,22 @@ mod basic_parsing_tests {
     }
 
     #[test]
-    fn test_scan_command_with_path() {
-        let args = parse_args_success(&["csd", "scan", "/path/to/project"]);
+    fn test_init_command_with_path() {
+        let args = parse_args_success(&["csd", "init", "/path/to/project"]);
 
         match args.command {
-            Command::Scan { path, .. } => {
+            Command::Init { path, .. } => {
                 assert_eq!(path, Some(PathBuf::from("/path/to/project")));
             }
-            _ => panic!("Expected Scan command"),
+            _ => panic!("Expected Init command"),
         }
     }
 
     #[test]
-    fn test_scan_command_with_all_options() {
+    fn test_init_command_with_all_options() {
         let args = parse_args_success(&[
             "csd",
-            "scan",
+            "init",
             "/project",
             "--output",
             "yaml",
@@ -69,7 +69,7 @@ mod basic_parsing_tests {
         ]);
 
         match args.command {
-            Command::Scan {
+            Command::Init {
                 path,
                 output,
                 output_file,
@@ -82,7 +82,7 @@ mod basic_parsing_tests {
                 assert!(no_llm);
                 assert!(include_tests);
             }
-            _ => panic!("Expected Scan command"),
+            _ => panic!("Expected Init command"),
         }
     }
 }
@@ -92,32 +92,32 @@ mod output_format_tests {
     use super::*;
 
     #[test]
-    fn test_scan_command_output_formats() {
+    fn test_init_command_output_formats() {
         // Test JSON output format
-        let args = parse_args_success(&["csd", "scan", "--output", "json"]);
+        let args = parse_args_success(&["csd", "init", "--output", "json"]);
         match args.command {
-            Command::Scan { output, .. } => {
+            Command::Init { output, .. } => {
                 assert!(matches!(output, OutputFormat::Json));
             }
-            _ => panic!("Expected Scan command"),
+            _ => panic!("Expected Init command"),
         }
 
         // Test YAML output format
-        let args = parse_args_success(&["csd", "scan", "--output", "yaml"]);
+        let args = parse_args_success(&["csd", "init", "--output", "yaml"]);
         match args.command {
-            Command::Scan { output, .. } => {
+            Command::Init { output, .. } => {
                 assert!(matches!(output, OutputFormat::Yaml));
             }
-            _ => panic!("Expected Scan command"),
+            _ => panic!("Expected Init command"),
         }
 
         // Test Pretty output format
-        let args = parse_args_success(&["csd", "scan", "--output", "pretty"]);
+        let args = parse_args_success(&["csd", "init", "--output", "pretty"]);
         match args.command {
-            Command::Scan { output, .. } => {
+            Command::Init { output, .. } => {
                 assert!(matches!(output, OutputFormat::Pretty));
             }
-            _ => panic!("Expected Scan command"),
+            _ => panic!("Expected Init command"),
         }
     }
 }
@@ -312,30 +312,6 @@ mod other_commands_tests {
             _ => panic!("Expected Plugins command"),
         }
     }
-
-    #[test]
-    fn test_init_command_basic() {
-        let args = parse_args_success(&["csd", "init"]);
-
-        match args.command {
-            Command::Init { force } => {
-                assert!(!force); // Default: not forced
-            }
-            _ => panic!("Expected Init command"),
-        }
-    }
-
-    #[test]
-    fn test_init_command_force() {
-        let args = parse_args_success(&["csd", "init", "--force"]);
-
-        match args.command {
-            Command::Init { force } => {
-                assert!(force);
-            }
-            _ => panic!("Expected Init command"),
-        }
-    }
 }
 
 #[cfg(test)]
@@ -344,32 +320,32 @@ mod global_flags_tests {
 
     #[test]
     fn test_global_verbose_flag() {
-        let args = parse_args_success(&["csd", "--verbose", "scan"]);
+        let args = parse_args_success(&["csd", "--verbose", "init"]);
         assert!(args.verbose);
 
-        let args = parse_args_success(&["csd", "-v", "scan"]);
+        let args = parse_args_success(&["csd", "-v", "init"]);
         assert!(args.verbose);
 
         // Test verbose flag can come after subcommand too
-        let args = parse_args_success(&["csd", "scan", "--verbose"]);
+        let args = parse_args_success(&["csd", "init", "--verbose"]);
         assert!(args.verbose);
     }
 
     #[test]
     fn test_global_config_flag() {
-        let args = parse_args_success(&["csd", "--config", "/path/to/config.yaml", "scan"]);
+        let args = parse_args_success(&["csd", "--config", "/path/to/config.yaml", "init"]);
         assert_eq!(args.config, Some(PathBuf::from("/path/to/config.yaml")));
 
-        let args = parse_args_success(&["csd", "-c", "config.yaml", "scan"]);
+        let args = parse_args_success(&["csd", "-c", "config.yaml", "init"]);
         assert_eq!(args.config, Some(PathBuf::from("config.yaml")));
     }
 
     #[test]
     fn test_global_project_flag() {
-        let args = parse_args_success(&["csd", "--project", "/project/root", "scan"]);
+        let args = parse_args_success(&["csd", "--project", "/project/root", "init"]);
         assert_eq!(args.project, Some(PathBuf::from("/project/root")));
 
-        let args = parse_args_success(&["csd", "-p", "/root", "scan"]);
+        let args = parse_args_success(&["csd", "-p", "/root", "init"]);
         assert_eq!(args.project, Some(PathBuf::from("/root")));
     }
 
@@ -382,7 +358,7 @@ mod global_flags_tests {
             "custom.yaml",
             "--project",
             "/my/project",
-            "scan",
+            "init",
             "--output",
             "yaml",
         ]);
@@ -392,10 +368,10 @@ mod global_flags_tests {
         assert_eq!(args.project, Some(PathBuf::from("/my/project")));
 
         match args.command {
-            Command::Scan { output, .. } => {
+            Command::Init { output, .. } => {
                 assert!(matches!(output, OutputFormat::Yaml));
             }
-            _ => panic!("Expected Scan command"),
+            _ => panic!("Expected Init command"),
         }
     }
 }
@@ -412,7 +388,7 @@ mod error_handling_tests {
 
     #[test]
     fn test_invalid_output_format() {
-        let result = parse_args(&["csd", "scan", "--output", "invalid"]);
+        let result = parse_args(&["csd", "init", "--output", "invalid"]);
         assert!(result.is_err());
     }
 
@@ -440,7 +416,7 @@ mod error_handling_tests {
         let result = parse_args(&["csd", "--help"]);
         assert!(result.is_err());
 
-        let result = parse_args(&["csd", "scan", "--help"]);
+        let result = parse_args(&["csd", "init", "--help"]);
         assert!(result.is_err());
     }
 
@@ -458,10 +434,10 @@ mod path_and_format_tests {
 
     #[test]
     fn test_short_flags() {
-        let args = parse_args_success(&["csd", "scan", "-o", "yaml", "-f", "output.yaml"]);
+        let args = parse_args_success(&["csd", "init", "-o", "yaml", "-f", "output.yaml"]);
 
         match args.command {
-            Command::Scan {
+            Command::Init {
                 output,
                 output_file,
                 ..
@@ -469,37 +445,37 @@ mod path_and_format_tests {
                 assert!(matches!(output, OutputFormat::Yaml));
                 assert_eq!(output_file, Some(PathBuf::from("output.yaml")));
             }
-            _ => panic!("Expected Scan command"),
+            _ => panic!("Expected Init command"),
         }
     }
 
     #[test]
     fn test_path_handling() {
         // Test relative paths
-        let args = parse_args_success(&["csd", "scan", "relative/path"]);
+        let args = parse_args_success(&["csd", "init", "relative/path"]);
         match args.command {
-            Command::Scan { path, .. } => {
+            Command::Init { path, .. } => {
                 assert_eq!(path, Some(PathBuf::from("relative/path")));
             }
-            _ => panic!("Expected Scan command"),
+            _ => panic!("Expected Init command"),
         }
 
         // Test absolute paths
-        let args = parse_args_success(&["csd", "scan", "/absolute/path"]);
+        let args = parse_args_success(&["csd", "init", "/absolute/path"]);
         match args.command {
-            Command::Scan { path, .. } => {
+            Command::Init { path, .. } => {
                 assert_eq!(path, Some(PathBuf::from("/absolute/path")));
             }
-            _ => panic!("Expected Scan command"),
+            _ => panic!("Expected Init command"),
         }
 
         // Test current directory
-        let args = parse_args_success(&["csd", "scan", "."]);
+        let args = parse_args_success(&["csd", "init", "."]);
         match args.command {
-            Command::Scan { path, .. } => {
+            Command::Init { path, .. } => {
                 assert_eq!(path, Some(PathBuf::from(".")));
             }
-            _ => panic!("Expected Scan command"),
+            _ => panic!("Expected Init command"),
         }
     }
 }
@@ -509,13 +485,13 @@ mod comprehensive_tests {
     use super::*;
 
     #[test]
-    fn test_scan_command_comprehensive() {
-        // Test all combinations of scan command options since this is the primary implemented command
+    fn test_init_command_comprehensive() {
+        // Test all combinations of init command options since this is the primary implemented command
 
-        // Basic scan
-        let args = parse_args_success(&["csd", "scan"]);
+        // Basic init
+        let args = parse_args_success(&["csd", "init"]);
         match args.command {
-            Command::Scan {
+            Command::Init {
                 path,
                 output,
                 output_file,
@@ -528,39 +504,39 @@ mod comprehensive_tests {
                 assert!(!no_llm);
                 assert!(!include_tests);
             }
-            _ => panic!("Expected Scan command"),
+            _ => panic!("Expected Init command"),
         }
 
-        // Scan with path
-        let args = parse_args_success(&["csd", "scan", "/my/project"]);
+        // Init with path
+        let args = parse_args_success(&["csd", "init", "/my/project"]);
         match args.command {
-            Command::Scan { path, .. } => {
+            Command::Init { path, .. } => {
                 assert_eq!(path, Some(PathBuf::from("/my/project")));
             }
-            _ => panic!("Expected Scan command"),
+            _ => panic!("Expected Init command"),
         }
 
-        // Scan with output formats
+        // Init with output formats
         for (format_str, expected_format) in [
             ("json", OutputFormat::Json),
             ("yaml", OutputFormat::Yaml),
             ("pretty", OutputFormat::Pretty),
         ] {
-            let args = parse_args_success(&["csd", "scan", "--output", format_str]);
+            let args = parse_args_success(&["csd", "init", "--output", format_str]);
             match args.command {
-                Command::Scan { output, .. } => {
+                Command::Init { output, .. } => {
                     assert!(
                         std::mem::discriminant(&output) == std::mem::discriminant(&expected_format)
                     );
                 }
-                _ => panic!("Expected Scan command"),
+                _ => panic!("Expected Init command"),
             }
         }
 
-        // Scan with flags
-        let args = parse_args_success(&["csd", "scan", "--no-llm", "--include-tests"]);
+        // Init with flags
+        let args = parse_args_success(&["csd", "init", "--no-llm", "--include-tests"]);
         match args.command {
-            Command::Scan {
+            Command::Init {
                 no_llm,
                 include_tests,
                 ..
@@ -568,7 +544,7 @@ mod comprehensive_tests {
                 assert!(no_llm);
                 assert!(include_tests);
             }
-            _ => panic!("Expected Scan command"),
+            _ => panic!("Expected Init command"),
         }
     }
 
@@ -609,7 +585,7 @@ mod comprehensive_tests {
 
     #[test]
     fn test_debug_and_clone_traits() {
-        let args = parse_args_success(&["csd", "scan"]);
+        let args = parse_args_success(&["csd", "init"]);
 
         // Test Debug trait
         let debug_str = format!("{args:?}");
@@ -617,7 +593,7 @@ mod comprehensive_tests {
 
         // Test that the command enum variants implement Debug
         let debug_str = format!("{:?}", args.command);
-        assert!(debug_str.contains("Scan"));
+        assert!(debug_str.contains("Init"));
 
         // Test Clone trait
         let _cloned_args = args.clone();
