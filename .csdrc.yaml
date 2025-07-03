@@ -9,11 +9,11 @@ output_dir: "output"
 # python_executable: "python3"    # For systems where python3 is preferred
 # python_executable: "/path/to/specific/python"  # For custom installations
 
-# LLM Configuration
+# LLM Configuration (Legacy - now configured per plugin)
 llm:
   provider: "ollama"
   base_url: "http://localhost:11434"
-  model: "deepseek-coder"
+  model: "deepseek-coder:6.7b"
   timeout_seconds: 30
 
 # Scanning Configuration
@@ -64,22 +64,9 @@ input_plugins:
       analyze_unsafe: true
       check_documentation: true
 
-  # Example: Custom JavaScript/TypeScript analyzer (hypothetical)
-  # javascript:
-  #   source:
-  #     type: "local"
-  #     path: "./custom_plugins/js_analyzer.py"
-  #   file_patterns:
-  #     extensions: [".js", ".ts", ".jsx", ".tsx"]
-  #     filenames: ["package.json", "tsconfig.json", "webpack.config.js"]
-  #   enabled: false
-  #   config:
-  #     analyze_jsx: true
-  #     check_types: true
-
 # Output Plugin Configuration (Documentation Generators, Quality Analyzers, etc.)
 output_plugins:
-  # Built-in Markdown documentation generator
+  # LLM-Enhanced Markdown documentation generator
   markdown_docs:
     source:
       type: "builtin"
@@ -88,62 +75,62 @@ output_plugins:
     formats: ["markdown"]
     enabled: true
     config:
-      include_api_reference: true
-      include_dependencies: true
-      include_file_structure: true
-      generate_toc: true
+      # LLM Configuration
+      llm:
+        provider: "ollama"
+        base_url: "http://localhost:11434"
+        model: "deepseek-coder:6.7b"
+        timeout_seconds: 120
+        max_tokens_per_request: 2000
+        max_context_tokens: 1000
+        temperature: 0.1
+        top_p: 0.9
 
-  # Example: HTML documentation generator (hypothetical)
-  # html_docs:
-  #   source:
-  #     type: "github"
-  #     repo: "csd-community/html-docs-plugin"
-  #     version: "v1.2.0"
-  #   output_types: ["documentation"]
-  #   formats: ["html"]
-  #   enabled: false
-  #   config:
-  #     theme: "modern"
-  #     include_search: true
-  #     generate_sitemap: true
+      # Template Configuration
+      templates:
+        use_existing_readme: true
+        fallback_to_generated: true
 
-  # Example: Quality analysis plugin (hypothetical)
-  # quality_analyzer:
-  #   source:
-  #     type: "builtin"
-  #     name: "quality_analyzer"
-  #   output_types: ["quality_report", "metrics"]
-  #   formats: ["json", "html", "csv"]
-  #   enabled: false
-  #   config:
-  #     check_complexity: true
-  #     check_duplication: true
-  #     complexity_threshold: 10
-  #     generate_charts: true
+      # Custom Prompts for Different Sections
+      prompts:
+        system_prompt: "You are a technical documentation expert. Generate clear, accurate, and helpful documentation based on code analysis. Be concise but thorough, and focus on practical information that helps users understand and use the code."
 
-  # Example: Security scanner plugin (hypothetical)
-  # security_scanner:
-  #   source:
-  #     type: "git"
-  #     url: "https://github.com/security-tools/csd-security-plugin.git"
-  #     branch: "main"
-  #   output_types: ["security_report"]
-  #   formats: ["json", "sarif"]
-  #   enabled: false
-  #   config:
-  #     scan_dependencies: true
-  #     check_patterns: true
-  #     severity_threshold: "medium"
+        section_prompts:
+          installation: |
+            Based on the project dependencies and build configuration, write clear installation instructions.
+            Include:
+            - Prerequisites and system requirements
+            - Step-by-step installation commands
+            - Verification steps to confirm installation
+            - Common installation issues and solutions
+            Use code blocks for commands and be specific about package managers and versions.
+
+          usage: |
+            Create practical usage examples based on the project structure and main functions.
+            Include:
+            - Basic "getting started" example
+            - Common use cases with code examples
+            - Expected inputs and outputs
+            - Tips for effective usage
+            Use working code examples that someone could copy and run.
+
+          examples: |
+            Create comprehensive, working examples that demonstrate the main functionality.
+            Include:
+            - Complete, runnable code examples
+            - Expected outputs or results
+            - Explanations of what each example demonstrates
+            - Progressive complexity (simple to advanced)
+            Base examples on the actual public API and typical usage patterns.
+
+      # Processing Options
+      processing:
+        max_functions_per_section: 10
+        include_private_functions: false
+        include_test_examples: true
+        context_priority: ["public_functions", "main_classes", "entry_points", "dependencies"]
+        fallback_on_llm_failure: true
 
 # Legacy plugin configuration (for backward compatibility)
 # If you have an old configuration with "plugins:", it will be automatically
 # migrated to the new input_plugins/output_plugins structure
-# plugins:
-#   python:
-#     source:
-#       type: "builtin"
-#       name: "python"
-#     file_patterns:
-#       extensions: [".py"]
-#       filenames: ["requirements.txt"]
-#     enabled: true
