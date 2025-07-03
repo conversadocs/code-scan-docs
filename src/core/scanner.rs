@@ -1,4 +1,5 @@
 use crate::core::matrix::ProjectMatrix;
+use crate::plugins::interface::{InputPluginInterface, PluginInput};
 use crate::utils::config::Config;
 use anyhow::Result;
 use ignore::WalkBuilder;
@@ -85,28 +86,27 @@ impl ProjectScanner {
     ) -> Result<crate::core::matrix::FileNode> {
         info!("🚀 Starting analysis for: {}", file_info.path.display());
 
-        use crate::plugins::communication::PluginCommunicator;
-        use crate::plugins::interface::PluginInput;
+        use crate::plugins::communication::InputPluginCommunicator;
 
         let plugin_name = file_info.plugin_name.as_ref().unwrap();
         debug!("📝 Plugin name: {plugin_name}");
 
-        // Get plugin path from config
+        // Get input plugin configuration from new structure
         let plugin_config = self
             .config
-            .plugins
-            .get(plugin_name)
-            .ok_or_else(|| anyhow::anyhow!("Plugin {} not found in config", plugin_name))?;
+            .get_input_plugin(plugin_name)
+            .ok_or_else(|| anyhow::anyhow!("Input plugin {} not found in config", plugin_name))?;
 
-        debug!("⚙️ Got plugin config for: {plugin_name}");
+        debug!("⚙️ Got input plugin config for: {plugin_name}");
 
         // Resolve plugin path
         let plugin_path = match &plugin_config.source {
             crate::utils::config::PluginSource::Builtin { name } => {
                 PathBuf::from(format!("plugins/input/{name}_analyzer.py"))
             }
+            crate::utils::config::PluginSource::Local { path } => PathBuf::from(path),
             _ => {
-                // TODO: Handle other plugin sources
+                // TODO: Handle other plugin sources (GitHub, Git)
                 return self.create_basic_file_node(file_info).await;
             }
         };
@@ -152,8 +152,8 @@ impl ProjectScanner {
         };
 
         debug!("📡 Creating plugin communicator...");
-        // Communicate with plugin
-        let mut communicator = PluginCommunicator::new(plugin_path).with_cache_dir(cache_dir);
+        // Communicate with plugin using the new InputPluginCommunicator
+        let mut communicator = InputPluginCommunicator::new(plugin_path).with_cache_dir(cache_dir);
 
         // Use configured Python executable or auto-detect
         if let Some(ref python_exe) = self.config.python_executable {
@@ -294,7 +294,7 @@ impl ProjectScanner {
                 .plugin_name
                 .clone()
                 .unwrap_or_else(|| "unknown".to_string()),
-            language: self.config.find_plugin_for_file(&file_info.path),
+            language: self.config.find_input_plugin_for_file(&file_info.path),
             is_text: file_info.is_text,
             elements,
             imports,
@@ -316,7 +316,7 @@ impl ProjectScanner {
                 .plugin_name
                 .clone()
                 .unwrap_or_else(|| "unknown".to_string()),
-            language: self.config.find_plugin_for_file(&file_info.path),
+            language: self.config.find_input_plugin_for_file(&file_info.path),
             is_text: file_info.is_text,
             elements: Vec::new(),
             imports: Vec::new(),
@@ -400,7 +400,7 @@ impl ProjectScanner {
                 .map(|ext| format!(".{}", ext.to_lowercase()));
 
             let is_text = self.is_text_file(path, &extension);
-            let plugin_name = self.config.find_plugin_for_file(path);
+            let plugin_name = self.config.find_input_plugin_for_file(path);
 
             // Calculate content hash
             let content_hash = self
@@ -465,8 +465,8 @@ impl ProjectScanner {
     }
 
     fn is_text_file(&self, path: &Path, extension: &Option<String>) -> bool {
-        // Simple heuristic - if a plugin claims it, it's probably text
-        if self.config.find_plugin_for_file(path).is_some() {
+        // Simple heuristic - if an input plugin claims it, it's probably text
+        if self.config.find_input_plugin_for_file(path).is_some() {
             return true;
         }
 
@@ -566,5 +566,17 @@ impl ProjectScanner {
             files.iter().filter(|f| f.is_text).count()
         );
         println!("   Total size: {total_size_mb:.2} MB");
+
+        // Show plugin configuration summary
+        let plugin_summary = self.config.get_plugin_summary();
+        println!("\n🔌 Plugin Configuration:");
+        println!(
+            "   Input plugins: {} enabled / {} total",
+            plugin_summary.enabled_input_plugins, plugin_summary.total_input_plugins
+        );
+        println!(
+            "   Output plugins: {} enabled / {} total",
+            plugin_summary.enabled_output_plugins, plugin_summary.total_output_plugins
+        );
     }
 }

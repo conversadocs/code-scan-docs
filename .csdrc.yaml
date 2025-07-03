@@ -1,11 +1,10 @@
 # CSD (Code Scan Docs) Configuration File (.csdrc.yaml)
-# This file configures how csd analyzes your code
+# This file configures how csd analyzes your code and generates outputs
 
 # Output directory for generated reports and documentation
 output_dir: "output"
 
 # Python executable to use for plugins (optional - will auto-detect if not specified)
-# Useful for pyenv, conda, or specific Python installations
 # python_executable: "python"     # Default: auto-detect
 # python_executable: "python3"    # For systems where python3 is preferred
 # python_executable: "/path/to/specific/python"  # For custom installations
@@ -27,6 +26,7 @@ scanning:
     - "*.log"
     - "*.md"
     - "LICENSE"
+    - ".csd_cache/"
 
   # Whether to include hidden files/directories
   include_hidden: false
@@ -34,9 +34,9 @@ scanning:
   # Maximum file size to analyze (in MB)
   max_file_size_mb: 10
 
-# Plugin Configuration
-plugins:
-  # Built-in Python plugin (for analyzing this tool!)
+# Input Plugin Configuration (Code Analyzers)
+input_plugins:
+  # Built-in Python plugin for analyzing Python code
   python:
     source:
       type: "builtin"
@@ -50,7 +50,7 @@ plugins:
       analyze_docstrings: true
       check_type_hints: true
 
-  # Built-in Rust plugin (for analyzing this tool!)
+  # Built-in Rust plugin for analyzing Rust code
   rust:
     source:
       type: "builtin"
@@ -63,3 +63,87 @@ plugins:
     config:
       analyze_unsafe: true
       check_documentation: true
+
+  # Example: Custom JavaScript/TypeScript analyzer (hypothetical)
+  # javascript:
+  #   source:
+  #     type: "local"
+  #     path: "./custom_plugins/js_analyzer.py"
+  #   file_patterns:
+  #     extensions: [".js", ".ts", ".jsx", ".tsx"]
+  #     filenames: ["package.json", "tsconfig.json", "webpack.config.js"]
+  #   enabled: false
+  #   config:
+  #     analyze_jsx: true
+  #     check_types: true
+
+# Output Plugin Configuration (Documentation Generators, Quality Analyzers, etc.)
+output_plugins:
+  # Built-in Markdown documentation generator
+  markdown_docs:
+    source:
+      type: "builtin"
+      name: "markdown_docs"
+    output_types: ["documentation"]
+    formats: ["markdown"]
+    enabled: true
+    config:
+      include_api_reference: true
+      include_dependencies: true
+      include_file_structure: true
+      generate_toc: true
+
+  # Example: HTML documentation generator (hypothetical)
+  # html_docs:
+  #   source:
+  #     type: "github"
+  #     repo: "csd-community/html-docs-plugin"
+  #     version: "v1.2.0"
+  #   output_types: ["documentation"]
+  #   formats: ["html"]
+  #   enabled: false
+  #   config:
+  #     theme: "modern"
+  #     include_search: true
+  #     generate_sitemap: true
+
+  # Example: Quality analysis plugin (hypothetical)
+  # quality_analyzer:
+  #   source:
+  #     type: "builtin"
+  #     name: "quality_analyzer"
+  #   output_types: ["quality_report", "metrics"]
+  #   formats: ["json", "html", "csv"]
+  #   enabled: false
+  #   config:
+  #     check_complexity: true
+  #     check_duplication: true
+  #     complexity_threshold: 10
+  #     generate_charts: true
+
+  # Example: Security scanner plugin (hypothetical)
+  # security_scanner:
+  #   source:
+  #     type: "git"
+  #     url: "https://github.com/security-tools/csd-security-plugin.git"
+  #     branch: "main"
+  #   output_types: ["security_report"]
+  #   formats: ["json", "sarif"]
+  #   enabled: false
+  #   config:
+  #     scan_dependencies: true
+  #     check_patterns: true
+  #     severity_threshold: "medium"
+
+# Legacy plugin configuration (for backward compatibility)
+# If you have an old configuration with "plugins:", it will be automatically
+# migrated to the new input_plugins/output_plugins structure
+# plugins:
+#   python:
+#     source:
+#       type: "builtin"
+#       name: "python"
+#     file_patterns:
+#       extensions: [".py"]
+#       filenames: ["requirements.txt"]
+#     enabled: true

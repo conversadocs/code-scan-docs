@@ -3,16 +3,19 @@ use tempfile::TempDir;
 use tokio::fs;
 
 // Import the modules we're testing
-use csd::utils::config::{Config, FilePatterns, LlmConfig, PluginConfig, PluginSource, ScanConfig};
+use csd::utils::config::{
+    Config, FilePatterns, InputPluginConfig, LlmConfig, OutputPluginConfig, PluginSource,
+    ScanConfig,
+};
 
 // Helper function to create a test config with custom plugins
 fn create_test_config_with_plugins() -> Config {
     let mut config = Config::default();
 
-    // Add a custom JavaScript plugin for testing
-    config.plugins.insert(
+    // Add a custom JavaScript input plugin for testing
+    config.input_plugins.insert(
         "javascript".to_string(),
-        PluginConfig {
+        InputPluginConfig {
             source: PluginSource::Builtin {
                 name: "javascript".to_string(),
             },
@@ -21,6 +24,20 @@ fn create_test_config_with_plugins() -> Config {
                 filenames: vec!["package.json".to_string()],
                 glob_patterns: Some(vec!["**/*.js".to_string()]),
             },
+            enabled: true,
+            config: None,
+        },
+    );
+
+    // Add a custom HTML documentation output plugin for testing
+    config.output_plugins.insert(
+        "html_docs".to_string(),
+        OutputPluginConfig {
+            source: PluginSource::Builtin {
+                name: "html_docs".to_string(),
+            },
+            output_types: vec!["documentation".to_string()],
+            formats: vec!["html".to_string()],
             enabled: true,
             config: None,
         },
@@ -52,11 +69,11 @@ fn test_config_default() {
         .ignore_patterns
         .contains(&".csd_cache/".to_string()));
 
-    // Test default plugins
-    assert!(config.plugins.contains_key("python"));
-    assert!(config.plugins.contains_key("rust"));
+    // Test default input plugins
+    assert!(config.input_plugins.contains_key("python"));
+    assert!(config.input_plugins.contains_key("rust"));
 
-    let python_plugin = &config.plugins["python"];
+    let python_plugin = &config.input_plugins["python"];
     assert!(python_plugin.enabled);
     assert!(python_plugin
         .file_patterns
@@ -67,7 +84,7 @@ fn test_config_default() {
         .filenames
         .contains(&"requirements.txt".to_string()));
 
-    let rust_plugin = &config.plugins["rust"];
+    let rust_plugin = &config.input_plugins["rust"];
     assert!(rust_plugin.enabled);
     assert!(rust_plugin
         .file_patterns
@@ -77,6 +94,19 @@ fn test_config_default() {
         .file_patterns
         .filenames
         .contains(&"Cargo.toml".to_string()));
+
+    // Test default output plugins
+    assert!(config.output_plugins.contains_key("markdown_docs"));
+
+    let markdown_plugin = &config.output_plugins["markdown_docs"];
+    assert!(markdown_plugin.enabled);
+    assert!(markdown_plugin
+        .output_types
+        .contains(&"documentation".to_string()));
+    assert!(markdown_plugin.formats.contains(&"markdown".to_string()));
+
+    // Test that legacy plugins field is None by default
+    assert!(config.plugins.is_none());
 }
 
 #[tokio::test]
@@ -108,16 +138,33 @@ async fn test_config_save_and_load() {
         original_config.python_executable
     );
 
-    // Verify plugins were preserved
-    assert_eq!(loaded_config.plugins.len(), original_config.plugins.len());
-    assert!(loaded_config.plugins.contains_key("javascript"));
+    // Verify input plugins were preserved
+    assert_eq!(
+        loaded_config.input_plugins.len(),
+        original_config.input_plugins.len()
+    );
+    assert!(loaded_config.input_plugins.contains_key("javascript"));
 
-    let js_plugin = &loaded_config.plugins["javascript"];
+    let js_plugin = &loaded_config.input_plugins["javascript"];
     assert!(js_plugin.enabled);
     assert!(js_plugin
         .file_patterns
         .extensions
         .contains(&".js".to_string()));
+
+    // Verify output plugins were preserved
+    assert_eq!(
+        loaded_config.output_plugins.len(),
+        original_config.output_plugins.len()
+    );
+    assert!(loaded_config.output_plugins.contains_key("html_docs"));
+
+    let html_plugin = &loaded_config.output_plugins["html_docs"];
+    assert!(html_plugin.enabled);
+    assert!(html_plugin
+        .output_types
+        .contains(&"documentation".to_string()));
+    assert!(html_plugin.formats.contains(&"html".to_string()));
 }
 
 #[tokio::test]
@@ -129,7 +176,7 @@ async fn test_config_load_invalid_yaml() {
     let invalid_yaml = r#"
 output_dir: "test"
 invalid_yaml: [unclosed bracket
-plugins:
+input_plugins:
 - this is not: valid yaml structure
 "#;
     fs::write(&config_path, invalid_yaml)
@@ -151,86 +198,109 @@ async fn test_config_save_to_readonly_location() {
 }
 
 #[test]
-fn test_find_plugin_for_file_by_extension() {
+fn test_find_input_plugin_for_file_by_extension() {
     let config = create_test_config_with_plugins();
 
     // Test Python files
     assert_eq!(
-        config.find_plugin_for_file(&PathBuf::from("src/main.py")),
+        config.find_input_plugin_for_file(&PathBuf::from("src/main.py")),
         Some("python".to_string())
     );
     assert_eq!(
-        config.find_plugin_for_file(&PathBuf::from("script.py")),
+        config.find_input_plugin_for_file(&PathBuf::from("script.py")),
         Some("python".to_string())
     );
 
     // Test Rust files
     assert_eq!(
-        config.find_plugin_for_file(&PathBuf::from("src/main.rs")),
+        config.find_input_plugin_for_file(&PathBuf::from("src/main.rs")),
         Some("rust".to_string())
     );
 
     // Test JavaScript files (from our custom plugin)
     assert_eq!(
-        config.find_plugin_for_file(&PathBuf::from("app.js")),
+        config.find_input_plugin_for_file(&PathBuf::from("app.js")),
         Some("javascript".to_string())
     );
     assert_eq!(
-        config.find_plugin_for_file(&PathBuf::from("component.jsx")),
+        config.find_input_plugin_for_file(&PathBuf::from("component.jsx")),
         Some("javascript".to_string())
     );
 
     // Test unknown extension
     assert_eq!(
-        config.find_plugin_for_file(&PathBuf::from("README.md")),
+        config.find_input_plugin_for_file(&PathBuf::from("README.md")),
         None
     );
     assert_eq!(
-        config.find_plugin_for_file(&PathBuf::from("image.png")),
+        config.find_input_plugin_for_file(&PathBuf::from("image.png")),
         None
     );
 }
 
 #[test]
-fn test_find_plugin_for_file_by_filename() {
+fn test_find_input_plugin_for_file_by_filename() {
     let config = create_test_config_with_plugins();
 
     // Test Python ecosystem files
     assert_eq!(
-        config.find_plugin_for_file(&PathBuf::from("requirements.txt")),
+        config.find_input_plugin_for_file(&PathBuf::from("requirements.txt")),
         Some("python".to_string())
     );
     assert_eq!(
-        config.find_plugin_for_file(&PathBuf::from("setup.py")),
+        config.find_input_plugin_for_file(&PathBuf::from("setup.py")),
         Some("python".to_string())
     );
     assert_eq!(
-        config.find_plugin_for_file(&PathBuf::from("pyproject.toml")),
+        config.find_input_plugin_for_file(&PathBuf::from("pyproject.toml")),
         Some("python".to_string())
     );
 
     // Test Rust ecosystem files
     assert_eq!(
-        config.find_plugin_for_file(&PathBuf::from("Cargo.toml")),
+        config.find_input_plugin_for_file(&PathBuf::from("Cargo.toml")),
         Some("rust".to_string())
     );
     assert_eq!(
-        config.find_plugin_for_file(&PathBuf::from("Cargo.lock")),
+        config.find_input_plugin_for_file(&PathBuf::from("Cargo.lock")),
         Some("rust".to_string())
     );
 
     // Test JavaScript ecosystem files (from our custom plugin)
     assert_eq!(
-        config.find_plugin_for_file(&PathBuf::from("package.json")),
+        config.find_input_plugin_for_file(&PathBuf::from("package.json")),
         Some("javascript".to_string())
     );
+}
+
+#[test]
+fn test_find_output_plugins_for_type() {
+    let config = create_test_config_with_plugins();
+
+    // Test finding documentation plugins
+    let doc_plugins_md = config.find_output_plugins_for_type("documentation", "markdown");
+    assert!(!doc_plugins_md.is_empty());
+    assert!(doc_plugins_md.contains(&"markdown_docs".to_string()));
+
+    let doc_plugins_html = config.find_output_plugins_for_type("documentation", "html");
+    assert!(!doc_plugins_html.is_empty());
+    assert!(doc_plugins_html.contains(&"html_docs".to_string()));
+
+    // Test unknown output type
+    let unknown_plugins = config.find_output_plugins_for_type("unknown_type", "unknown_format");
+    assert!(unknown_plugins.is_empty());
+
+    // Test wrong format for existing type
+    let wrong_format = config.find_output_plugins_for_type("documentation", "pdf");
+    // Should be empty since no plugins support PDF in our test config
+    assert!(wrong_format.is_empty());
 }
 
 #[test]
 fn test_find_plugin_for_file_case_sensitivity() {
     let config = create_test_config_with_plugins();
 
-    // Test case variations
+    // Test case variations (legacy method for compatibility)
     assert_eq!(
         config.find_plugin_for_file(&PathBuf::from("REQUIREMENTS.TXT")),
         Some("python".to_string())
@@ -255,21 +325,21 @@ fn test_find_plugin_for_file_with_path() {
 
     // Test files in subdirectories
     assert_eq!(
-        config.find_plugin_for_file(&PathBuf::from("src/utils/helper.py")),
+        config.find_input_plugin_for_file(&PathBuf::from("src/utils/helper.py")),
         Some("python".to_string())
     );
     assert_eq!(
-        config.find_plugin_for_file(&PathBuf::from("backend/core/main.rs")),
+        config.find_input_plugin_for_file(&PathBuf::from("backend/core/main.rs")),
         Some("rust".to_string())
     );
     assert_eq!(
-        config.find_plugin_for_file(&PathBuf::from("frontend/src/app.js")),
+        config.find_input_plugin_for_file(&PathBuf::from("frontend/src/app.js")),
         Some("javascript".to_string())
     );
 
     // Test absolute paths
     assert_eq!(
-        config.find_plugin_for_file(&PathBuf::from("/home/user/project/script.py")),
+        config.find_input_plugin_for_file(&PathBuf::from("/home/user/project/script.py")),
         Some("python".to_string())
     );
 }
@@ -279,18 +349,21 @@ fn test_find_plugin_for_file_disabled_plugin() {
     let mut config = create_test_config_with_plugins();
 
     // Disable the JavaScript plugin
-    config.plugins.get_mut("javascript").unwrap().enabled = false;
+    config.input_plugins.get_mut("javascript").unwrap().enabled = false;
 
     // Should not match disabled plugin
-    assert_eq!(config.find_plugin_for_file(&PathBuf::from("app.js")), None);
     assert_eq!(
-        config.find_plugin_for_file(&PathBuf::from("package.json")),
+        config.find_input_plugin_for_file(&PathBuf::from("app.js")),
+        None
+    );
+    assert_eq!(
+        config.find_input_plugin_for_file(&PathBuf::from("package.json")),
         None
     );
 
     // But enabled plugins should still work
     assert_eq!(
-        config.find_plugin_for_file(&PathBuf::from("main.py")),
+        config.find_input_plugin_for_file(&PathBuf::from("main.py")),
         Some("python".to_string())
     );
 }
@@ -300,16 +373,22 @@ fn test_find_plugin_for_file_no_extension() {
     let config = create_test_config_with_plugins();
 
     // Files without extensions should not match extension patterns
-    assert_eq!(config.find_plugin_for_file(&PathBuf::from("README")), None);
-    assert_eq!(config.find_plugin_for_file(&PathBuf::from("LICENSE")), None);
     assert_eq!(
-        config.find_plugin_for_file(&PathBuf::from("Makefile")),
+        config.find_input_plugin_for_file(&PathBuf::from("README")),
+        None
+    );
+    assert_eq!(
+        config.find_input_plugin_for_file(&PathBuf::from("LICENSE")),
+        None
+    );
+    assert_eq!(
+        config.find_input_plugin_for_file(&PathBuf::from("Makefile")),
         None
     );
 
     // But should match filename patterns
     assert_eq!(
-        config.find_plugin_for_file(&PathBuf::from("requirements.txt")),
+        config.find_input_plugin_for_file(&PathBuf::from("requirements.txt")),
         Some("python".to_string())
     );
 }
@@ -318,8 +397,8 @@ fn test_find_plugin_for_file_no_extension() {
 fn test_plugin_source_types() {
     let config = Config::default();
 
-    // Test that default plugins use builtin source
-    let python_plugin = &config.plugins["python"];
+    // Test that default input plugins use builtin source
+    let python_plugin = &config.input_plugins["python"];
     match &python_plugin.source {
         PluginSource::Builtin { name } => {
             assert_eq!(name, "python");
@@ -327,19 +406,28 @@ fn test_plugin_source_types() {
         _ => panic!("Expected builtin source for python plugin"),
     }
 
-    let rust_plugin = &config.plugins["rust"];
+    let rust_plugin = &config.input_plugins["rust"];
     match &rust_plugin.source {
         PluginSource::Builtin { name } => {
             assert_eq!(name, "rust");
         }
         _ => panic!("Expected builtin source for rust plugin"),
     }
+
+    // Test that default output plugins use builtin source
+    let markdown_plugin = &config.output_plugins["markdown_docs"];
+    match &markdown_plugin.source {
+        PluginSource::Builtin { name } => {
+            assert_eq!(name, "markdown_docs");
+        }
+        _ => panic!("Expected builtin source for markdown_docs plugin"),
+    }
 }
 
 #[test]
 fn test_file_patterns_structure() {
     let config = Config::default();
-    let python_plugin = &config.plugins["python"];
+    let python_plugin = &config.input_plugins["python"];
 
     // Test that file patterns are properly structured
     assert!(!python_plugin.file_patterns.extensions.is_empty());
@@ -354,6 +442,72 @@ fn test_file_patterns_structure() {
     if let Some(ref globs) = patterns.glob_patterns {
         assert!(globs.iter().any(|p| p.contains("requirements")));
     }
+}
+
+#[test]
+fn test_plugin_management_methods() {
+    let mut config = Config::default();
+
+    // Test get methods
+    assert!(config.get_input_plugin("python").is_some());
+    assert!(config.get_output_plugin("markdown_docs").is_some());
+    assert!(config.get_input_plugin("nonexistent").is_none());
+
+    // Test enabled plugins
+    let enabled_input = config.get_enabled_input_plugins();
+    let enabled_output = config.get_enabled_output_plugins();
+
+    assert!(!enabled_input.is_empty());
+    assert!(!enabled_output.is_empty());
+
+    // Test adding new plugins
+    let new_input_plugin = InputPluginConfig {
+        source: PluginSource::Local {
+            path: "/path/to/plugin".to_string(),
+        },
+        file_patterns: FilePatterns {
+            extensions: vec![".test".to_string()],
+            filenames: vec![],
+            glob_patterns: None,
+        },
+        enabled: true,
+        config: None,
+    };
+
+    config.add_input_plugin("test_plugin".to_string(), new_input_plugin);
+    assert!(config.get_input_plugin("test_plugin").is_some());
+
+    // Test removing plugins
+    let removed = config.remove_input_plugin("test_plugin");
+    assert!(removed.is_some());
+    assert!(config.get_input_plugin("test_plugin").is_none());
+}
+
+#[test]
+fn test_plugin_summary() {
+    let config = create_test_config_with_plugins();
+    let summary = config.get_plugin_summary();
+
+    // Should have at least the default plugins plus our custom ones
+    assert!(summary.total_input_plugins >= 3); // python, rust, javascript
+    assert!(summary.total_output_plugins >= 2); // markdown_docs, html_docs
+
+    // All should be enabled in our test config
+    assert_eq!(summary.enabled_input_plugins, summary.total_input_plugins);
+    assert_eq!(summary.enabled_output_plugins, summary.total_output_plugins);
+
+    // Check plugin names
+    assert!(summary.input_plugin_names.contains(&"python".to_string()));
+    assert!(summary.input_plugin_names.contains(&"rust".to_string()));
+    assert!(summary
+        .input_plugin_names
+        .contains(&"javascript".to_string()));
+    assert!(summary
+        .output_plugin_names
+        .contains(&"markdown_docs".to_string()));
+    assert!(summary
+        .output_plugin_names
+        .contains(&"html_docs".to_string()));
 }
 
 #[tokio::test]
@@ -392,14 +546,108 @@ async fn test_config_roundtrip_preserves_data() {
     assert_eq!(loaded_config.llm.timeout_seconds, 120);
     assert_eq!(loaded_config.scanning.max_file_size_mb, 25);
 
-    // Verify plugin data is preserved
-    assert_eq!(loaded_config.plugins.len(), original_config.plugins.len());
-    for (key, original_plugin) in &original_config.plugins {
-        let loaded_plugin = loaded_config.plugins.get(key).expect("Plugin missing");
+    // Verify input plugin data is preserved
+    assert_eq!(
+        loaded_config.input_plugins.len(),
+        original_config.input_plugins.len()
+    );
+    for (key, original_plugin) in &original_config.input_plugins {
+        let loaded_plugin = loaded_config
+            .input_plugins
+            .get(key)
+            .expect("Input plugin missing");
         assert_eq!(loaded_plugin.enabled, original_plugin.enabled);
         assert_eq!(
             loaded_plugin.file_patterns.extensions.len(),
             original_plugin.file_patterns.extensions.len()
         );
     }
+
+    // Verify output plugin data is preserved
+    assert_eq!(
+        loaded_config.output_plugins.len(),
+        original_config.output_plugins.len()
+    );
+    for (key, original_plugin) in &original_config.output_plugins {
+        let loaded_plugin = loaded_config
+            .output_plugins
+            .get(key)
+            .expect("Output plugin missing");
+        assert_eq!(loaded_plugin.enabled, original_plugin.enabled);
+        assert_eq!(
+            loaded_plugin.output_types.len(),
+            original_plugin.output_types.len()
+        );
+    }
+}
+
+#[tokio::test]
+async fn test_legacy_plugin_migration() {
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+    let config_path = temp_dir.path().join("legacy_config.yaml");
+
+    // Create a config file with legacy plugin format (this would be manual)
+    let legacy_yaml = r#"
+output_dir: "output"
+llm:
+  provider: "ollama"
+  base_url: "http://localhost:11434"
+  model: "deepseek-coder"
+  timeout_seconds: 30
+scanning:
+  ignore_patterns: ["target/"]
+  include_hidden: false
+  max_file_size_mb: 10
+input_plugins:
+  python:
+    source:
+      type: "builtin"
+      name: "python"
+    file_patterns:
+      extensions: [".py"]
+      filenames: ["requirements.txt"]
+    enabled: true
+output_plugins:
+  markdown_docs:
+    source:
+      type: "builtin"
+      name: "markdown_docs"
+    output_types: ["documentation"]
+    formats: ["markdown"]
+    enabled: true
+"#;
+
+    fs::write(&config_path, legacy_yaml)
+        .await
+        .expect("Failed to write legacy config");
+
+    // Load the config - migration should happen automatically
+    let loaded_config = Config::load(&config_path)
+        .await
+        .expect("Failed to load config");
+
+    // Verify the structure is correct after loading
+    assert!(loaded_config.input_plugins.contains_key("python"));
+    assert!(loaded_config.output_plugins.contains_key("markdown_docs"));
+    assert!(loaded_config.plugins.is_none()); // Legacy field should be None
+}
+
+// Test backward compatibility with legacy method names
+#[test]
+fn test_legacy_method_compatibility() {
+    let config = create_test_config_with_plugins();
+
+    // Test that find_plugin_for_file still works (maps to find_input_plugin_for_file)
+    assert_eq!(
+        config.find_plugin_for_file(&PathBuf::from("test.py")),
+        Some("python".to_string())
+    );
+    assert_eq!(
+        config.find_plugin_for_file(&PathBuf::from("test.rs")),
+        Some("rust".to_string())
+    );
+    assert_eq!(
+        config.find_plugin_for_file(&PathBuf::from("test.js")),
+        Some("javascript".to_string())
+    );
 }
