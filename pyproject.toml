@@ -84,7 +84,8 @@ extend-exclude = '''
 
 [tool.flake8]
 per-file-ignores = [
-    "plugins/output/docs/markdown_docs.py:E501"
+    "plugins/output/docs/markdown_docs.py:E501",
+    "plugins/shared/python/csd_plugin_sdk/utils/llm.py:E501"
 ]
 
 [tool.mypy]

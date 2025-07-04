@@ -3,6 +3,7 @@
 Base class for CSD plugins.
 All language plugins should inherit from this class.
 """
+
 import io
 import typing
 import json
@@ -17,7 +18,9 @@ from dataclasses import dataclass, asdict
 
 @dataclass
 class CodeElement:
-    element_type: str  # 'function', 'class', 'method', 'variable', etc.
+    """Representation of a code element."""
+
+    element_type: str
     name: str
     signature: Optional[str] = None
     line_start: int = 0
@@ -28,6 +31,7 @@ class CodeElement:
     metadata: Dict[str, Any] = None
 
     def __post_init__(self):
+        """Initialize default values for calls and metadata."""
         if self.calls is None:
             self.calls = []
         if self.metadata is None:
@@ -36,19 +40,24 @@ class CodeElement:
 
 @dataclass
 class Import:
+    """Representation of an import statement."""
+
     module: str
     items: List[str] = None
     alias: Optional[str] = None
     line_number: int = 0
-    import_type: str = "standard"  # 'standard', 'third_party', 'local', 'relative'
+    import_type: str = "standard"
 
     def __post_init__(self):
+        """Initialize default values for items."""
         if self.items is None:
             self.items = []
 
 
 @dataclass
 class Relationship:
+    """Representation of a relationship between files."""
+
     from_file: str
     to_file: str
     relationship_type: str
@@ -59,15 +68,19 @@ class Relationship:
 
 @dataclass
 class ExternalDependency:
+    """Representation of an external dependency."""
+
     name: str
     version: Optional[str] = None
     ecosystem: str = "unknown"
-    dependency_type: str = "runtime"  # 'runtime', 'development', 'build', 'optional'
+    dependency_type: str = "runtime"
     source_file: str = ""
 
 
 @dataclass
 class PluginOutput:
+    """Output data structure for plugin results."""
+
     file_path: str
     file_hash: str
     elements: List[CodeElement]
@@ -82,11 +95,13 @@ class PluginOutput:
 
 @dataclass
 class PluginInput:
+    """Input data structure for plugin analysis."""
+
     file_path: str
     relative_path: str
     content: str
     project_root: str
-    cache_dir: str  # New field for cache directory
+    cache_dir: str
     plugin_config: Optional[Dict[str, Any]] = None
 
 
@@ -94,9 +109,10 @@ class BaseAnalyzer(ABC):
     """Base class for all CSD input plugins (code analyzers)."""
 
     def __init__(self):
+        """Initialize the BaseAnalyzer instance."""
         self.name = self.__class__.__name__
         self.version = "1.0.0"
-        self.plugin_type = "input"  # NEW: Plugin type identification
+        self.plugin_type = "input"
         self.supported_extensions = []
         self.supported_filenames = []
 
@@ -106,11 +122,12 @@ class BaseAnalyzer(ABC):
         Check if this plugin can analyze the given file.
 
         Args:
-            file_path: Path to the file
-            content_preview: First ~500 characters of the file
+            file_path: Path to the file.
+            content_preview: First ~500 characters of the file.
 
         Returns:
-            (can_analyze: bool, confidence: float)
+            Tuple containing a boolean indicating if analysis is possible
+            and a confidence score.
         """
         pass
 
@@ -120,10 +137,10 @@ class BaseAnalyzer(ABC):
         Analyze the given file and return structured data.
 
         Args:
-            input_data: Plugin input containing file content and metadata
+            input_data: Plugin input containing file content and metadata.
 
         Returns:
-            PluginOutput with analysis results
+            PluginOutput with analysis results.
         """
         pass
 
@@ -132,24 +149,20 @@ class BaseAnalyzer(ABC):
         return {
             "name": self.name,
             "version": self.version,
-            "plugin_type": self.plugin_type,  # NEW: Plugin type identification
+            "plugin_type": self.plugin_type,
             "supported_extensions": self.supported_extensions,
             "supported_filenames": self.supported_filenames,
-            "supported_output_types": None,  # Input plugins don't generate output
-            "supported_formats": None,  # Input plugins don't generate output
+            "supported_output_types": None,
+            "supported_formats": None,
         }
 
     def _generate_cache_filename(self, input_data: PluginInput) -> str:
         """Generate a unique cache filename for this analysis."""
-        # Create a hash from file path and content to ensure uniqueness
         content_hash = hashlib.md5(
             (input_data.file_path + input_data.content).encode()
         ).hexdigest()[:16]
-
-        # Clean the relative path for filename use
         clean_path = input_data.relative_path.replace("/", "_").replace("\\", "_")
         clean_path = clean_path.replace(".", "_")
-
         return f"{self.name}_{clean_path}_{content_hash}.json"
 
     def _write_to_cache(
@@ -157,35 +170,25 @@ class BaseAnalyzer(ABC):
     ) -> str:
         """Write analysis result to cache file and return the filename."""
         cache_path = Path(cache_dir) / cache_filename
-
-        # Ensure cache directory exists
         cache_path.parent.mkdir(parents=True, exist_ok=True)
-
-        # Write the result
         with open(cache_path, "w", encoding="utf-8") as f:
             json.dump(asdict(result), f, indent=2, ensure_ascii=False)
-
         return cache_filename
 
     def run(self):
         """Main entry point for plugin execution."""
         try:
-            # Configure stdout to be line buffered
             typing.cast(io.TextIOWrapper, sys.stdout).reconfigure(line_buffering=True)
             typing.cast(io.TextIOWrapper, sys.stderr).reconfigure(line_buffering=True)
 
-            # Read all input from stdin - try different approaches
             try:
-                # Method 1: Read all at once
                 input_data = sys.stdin.read().strip()
             except Exception as e:
-                # Method 2: Read line by line until we get valid JSON
-                print(f"Failed to read all input: {e}", file=sys.stderr)
+                self._send_error(f"Failed to read input: {e}")
                 input_lines = []
                 try:
                     for line in sys.stdin:
                         input_lines.append(line.strip())
-                        # Try to parse as JSON to see if we have a complete message
                         try:
                             full_input = "".join(input_lines)
                             json.loads(full_input)
@@ -203,14 +206,12 @@ class BaseAnalyzer(ABC):
                 self._send_error("No input received")
                 return
 
-            # Parse the message
             try:
                 message = json.loads(input_data)
             except json.JSONDecodeError as e:
                 self._send_error(f"Invalid JSON: {e}")
                 return
 
-            # Handle the message
             if message.get("type") == "can_analyze":
                 self._handle_can_analyze(message)
             elif message.get("type") == "analyze":
@@ -246,7 +247,7 @@ class BaseAnalyzer(ABC):
             self._send_error(f"Error in can_analyze: {e}")
 
     def _handle_analyze(self, message: Dict[str, Any]):
-        """Handle analyze request - now writes to cache file."""
+        """Handle analyze request."""
         try:
             input_dict = message["input"]
             input_data = PluginInput(**input_dict)
@@ -255,17 +256,14 @@ class BaseAnalyzer(ABC):
             result = self.analyze(input_data)
             end_time = time.time()
 
-            # Update timing
             result.processing_time_ms = int((end_time - start_time) * 1000)
             result.plugin_version = self.version
 
-            # Generate cache filename and write to cache
             cache_filename = self._generate_cache_filename(input_data)
             actual_filename = self._write_to_cache(
                 result, cache_filename, input_data.cache_dir
             )
 
-            # Send back just the cache filename, not the full data
             response = {
                 "status": "success",
                 "cache_file": actual_filename,
@@ -303,15 +301,20 @@ class BaseAnalyzer(ABC):
 def calculate_complexity(code: str, element_start: int, element_end: int) -> int:
     """
     Calculate a simple complexity score for a code element.
-    This is a basic implementation - can be enhanced per language.
+
+    Args:
+        code: The code containing the element.
+        element_start: The starting line number of the element.
+        element_end: The ending line number of the element.
+
+    Returns:
+        An integer representing the complexity score.
     """
     lines = code.split("\n")[element_start - 1 : element_end]
     code_block = "\n".join(lines)
 
-    # Simple complexity heuristics
-    complexity = 1  # Base complexity
+    complexity = 1
 
-    # Control flow statements add complexity
     complexity_keywords = [
         "if",
         "elif",
@@ -328,8 +331,7 @@ def calculate_complexity(code: str, element_start: int, element_end: int) -> int
             f"\t{keyword} "
         )
 
-    # Nested functions add complexity
-    complexity += code_block.count("def ") - 1  # Subtract 1 for the function itself
+    complexity += code_block.count("def ") - 1
 
     return max(1, complexity)
 
@@ -337,15 +339,21 @@ def calculate_complexity(code: str, element_start: int, element_end: int) -> int
 def detect_import_type(module_name: str, project_root: str, file_path: str) -> str:
     """
     Detect the type of import based on the module name and project structure.
+
+    Args:
+        module_name: The name of the module being imported.
+        project_root: The root directory of the project.
+        file_path: The path to the current file.
+
+    Returns:
+        A string indicating the type: 'relative', 'local', 'standard', or 'third_party'.
     """
     if module_name.startswith("."):
         return "relative"
 
-    # Check if it's a local module (exists in project)
     project_path = Path(project_root)
     file_dir = Path(file_path).parent
 
-    # Try to find the module in the project
     potential_paths = [
         project_path / f"{module_name.replace('.', '/')}.py",
         project_path / f"{module_name.replace('.', '/')}/__init__.py",
@@ -357,7 +365,6 @@ def detect_import_type(module_name: str, project_root: str, file_path: str) -> s
         if path.exists():
             return "local"
 
-    # Check if it's a standard library module
     standard_modules = {
         "os",
         "sys",

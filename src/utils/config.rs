@@ -65,7 +65,10 @@ pub enum PluginSource {
     #[serde(rename = "git")]
     Git { url: String, branch: Option<String> },
     #[serde(rename = "builtin")]
-    Builtin { name: String },
+    Builtin {
+        name: String,
+        plugin_type: String, // NEW: Separate plugin type field
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -93,7 +96,8 @@ impl Default for Config {
             "python".to_string(),
             InputPluginConfig {
                 source: PluginSource::Builtin {
-                    name: "python".to_string(),
+                    name: "python_analyzer".to_string(),
+                    plugin_type: "code".to_string(),
                 },
                 file_patterns: FilePatterns {
                     extensions: vec![".py".to_string()],
@@ -121,7 +125,8 @@ impl Default for Config {
             "rust".to_string(),
             InputPluginConfig {
                 source: PluginSource::Builtin {
-                    name: "rust".to_string(),
+                    name: "rust_analyzer".to_string(),
+                    plugin_type: "code".to_string(),
                 },
                 file_patterns: FilePatterns {
                     extensions: vec![".rs".to_string()],
@@ -147,6 +152,7 @@ impl Default for Config {
             OutputPluginConfig {
                 source: PluginSource::Builtin {
                     name: "markdown_docs".to_string(),
+                    plugin_type: "docs".to_string(),
                 },
                 output_types: vec!["documentation".to_string()],
                 formats: vec!["markdown".to_string()],

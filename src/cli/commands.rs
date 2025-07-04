@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use crate::cli::args::{Args, Command};
 use crate::core::scanner::ProjectScanner;
-use crate::plugins::interface::{OutputPluginInput, OutputPluginInterface}; // Added missing imports
+use crate::plugins::interface::{OutputPluginInput, OutputPluginInterface};
 use crate::plugins::manager::PluginManager;
 use crate::utils::config::Config;
 
@@ -197,10 +197,10 @@ async fn handle_docs(
     // Set up plugin communication
     use crate::plugins::communication::OutputPluginCommunicator;
 
-    // Resolve plugin path
+    // Resolve plugin path with the new plugin_type structure
     let plugin_path = match &plugin_config.source {
-        crate::utils::config::PluginSource::Builtin { name } => {
-            PathBuf::from(format!("plugins/output/{name}.py"))
+        crate::utils::config::PluginSource::Builtin { name, plugin_type } => {
+            PathBuf::from(format!("plugins/output/{plugin_type}/{name}.py"))
         }
         crate::utils::config::PluginSource::Local { path } => PathBuf::from(path),
         _ => {

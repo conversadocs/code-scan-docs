@@ -42,10 +42,7 @@ class TokenManager:
 
     def __init__(self, model_name: str):
         self.model_name = model_name
-        # Rough token estimates (chars / 4 is a common approximation)
         self.chars_per_token = 4
-
-        # Model-specific limits
         self.model_limits = {
             "deepseek-coder": {"max_total": 8192, "reserve_output": 1000},
             "deepseek-coder:6.7b": {"max_total": 8192, "reserve_output": 1000},
@@ -54,12 +51,11 @@ class TokenManager:
         }
 
     def estimate_tokens(self, text: str) -> int:
-        """Rough token estimation based on character count."""
+        """Estimate the number of tokens based on character count."""
         return len(text) // self.chars_per_token
 
     def get_model_limits(self) -> Dict[str, int]:
         """Get token limits for the current model."""
-        # Try exact match first, then fallback to base model name, then default
         for key in [self.model_name, self.model_name.split(":")[0], "default"]:
             if key in self.model_limits:
                 return self.model_limits[key]
@@ -86,18 +82,13 @@ class TokenManager:
         if estimated_tokens <= max_tokens:
             return context
 
-        # Trim to approximate character count
         target_chars = max_tokens * self.chars_per_token
 
         if target_chars < len(context):
-            # Try to trim at word boundaries
             trimmed = context[:target_chars]
             last_space = trimmed.rfind(" ")
-            if (
-                last_space > target_chars * 0.8
-            ):  # If we can find a space reasonably close
+            if last_space > target_chars * 0.8:
                 trimmed = trimmed[:last_space]
-
             return trimmed + "... [content truncated for token limits]"
 
         return context
@@ -121,10 +112,8 @@ class LLMClient:
         start_time = time.time()
 
         try:
-            # Build the full prompt
             full_prompt = self._build_prompt(prompt, system_prompt, context)
 
-            # Make the API request
             if self.config.provider.lower() == "ollama":
                 response = await self._call_ollama(full_prompt)
             else:
@@ -154,21 +143,17 @@ class LLMClient:
         context: Optional[str] = None,
     ) -> str:
         """Build the complete prompt with token management."""
-
-        # Default system prompt if none provided
         if system_prompt is None:
             system_prompt = (
                 "You are a technical documentation expert. Generate clear, accurate, "
-                "and helpful documentation based on code analysis. Be concise but thorough."  # noqa: E501
+                "and helpful documentation based on code analysis. Be concise but thorough."
             )
 
-        # Calculate available tokens for context
         base_prompt = f"{system_prompt}\n\n{user_prompt}"
         available_tokens = self.token_manager.calculate_available_context_tokens(
             system_prompt, user_prompt
         )
 
-        # Include context if provided and it fits
         if context:
             trimmed_context = self.token_manager.trim_context(context, available_tokens)
             full_prompt = (
@@ -178,7 +163,7 @@ class LLMClient:
             full_prompt = base_prompt
 
         self.logger.debug(
-            f"Built prompt with ~{self.token_manager.estimate_tokens(full_prompt)} tokens"  # noqa: E501
+            f"Built prompt with ~{self.token_manager.estimate_tokens(full_prompt)} tokens"
         )
         return full_prompt
 
@@ -205,15 +190,12 @@ class LLMClient:
                     if response.status == 200:
                         result = await response.json()
 
-                        # Ollama returns the response in 'response' field
                         content = result.get("response", "").strip()
 
                         return LLMResponse(
                             content=content,
                             success=True,
-                            tokens_used=result.get(
-                                "total_duration", 0
-                            ),  # Ollama provides timing info
+                            tokens_used=result.get("total_duration", 0),
                         )
                     else:
                         error_text = await response.text()
@@ -238,7 +220,6 @@ class LLMClient:
         """Test if we can connect to the LLM."""
         try:
             if self.config.provider.lower() == "ollama":
-                # Test with a simple version check
                 url = f"{self.config.base_url}/api/version"
                 timeout = aiohttp.ClientTimeout(total=5)
 
@@ -266,14 +247,12 @@ class SectionProcessor:
         while i < len(lines):
             line = lines[i].strip()
 
-            # Look for section start marker
             if line.startswith("<!-- CSD:SECTION:"):
                 section_name = (
                     line.replace("<!-- CSD:SECTION:", "").replace(" -->", "").strip()
                 )
                 start_line = i
 
-                # Look for section end marker
                 end_line = None
                 content_lines = []
 
@@ -298,7 +277,7 @@ class SectionProcessor:
             i += 1
 
         self.logger.info(
-            f"Found {len(sections)} sections to process: {[s['name'] for s in sections]}"  # noqa: E501
+            f"Found {len(sections)} sections to process: {[s['name'] for s in sections]}"
         )
         return sections
 
@@ -309,12 +288,10 @@ class SectionProcessor:
         section_prompt: Optional[str] = None,
     ) -> str:
         """Enhance a single section with LLM."""
-
         if section_prompt is None:
             section_prompt = self._get_default_prompt(section["name"])
 
-        # Add the original content as additional context
-        full_context = f"Original content:\n{section['original_content']}\n\nProject context:\n{context}"  # noqa: E501
+        full_context = f"Original content:\n{section['original_content']}\n\nProject context:\n{context}"
 
         response = await self.llm_client.generate(
             prompt=section_prompt, context=full_context
@@ -327,7 +304,6 @@ class SectionProcessor:
             self.logger.error(
                 f"Failed to enhance section '{section['name']}': {response.error}"
             )
-            # Return original content if enhancement fails
             return cast(str, section["original_content"])
 
     def _get_default_prompt(self, section_name: str) -> str:
@@ -344,7 +320,7 @@ class SectionProcessor:
             ),
             "api_reference": (
                 "Based on the code structure, generate clean documentation. Include "
-                "public functions and classes with their parameters and purpose. "
+                "public functions and classes with their parameters and purpose."
             ),
             "usage": (
                 "Write practical usage examples based on the project structure. "
@@ -368,11 +344,10 @@ class SectionProcessor:
         """Replace a section's content in the original document."""
         lines = original_content.split("\n")
 
-        # Replace content between start and end markers
         new_lines = (
-            lines[: section["start_line"] + 1]  # Keep start marker
-            + [new_content]  # New content
-            + lines[section["end_line"] :]  # Keep end marker and everything after
+            lines[: section["start_line"] + 1]
+            + [new_content]
+            + lines[section["end_line"] :]
         )
 
         return "\n".join(new_lines)
