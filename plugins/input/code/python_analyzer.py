@@ -11,12 +11,7 @@ import typing
 import re
 from pathlib import Path
 from typing import List, Optional, Tuple
-
-# Add the shared directory to the path so we can import base_analyzer
-sys.path.insert(0, str(Path(__file__).parent / "../shared"))
-typing.cast(io.TextIOWrapper, sys.stdout).reconfigure(line_buffering=True)
-
-from base_analyzer import (
+from csd_plugin_sdk import (
     BaseAnalyzer,
     CodeElement,
     Import,
@@ -27,6 +22,8 @@ from base_analyzer import (
     calculate_complexity,
     detect_import_type,
 )
+
+typing.cast(io.TextIOWrapper, sys.stdout).reconfigure(line_buffering=True)
 
 
 class PythonAnalyzer(BaseAnalyzer):

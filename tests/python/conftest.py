@@ -12,15 +12,27 @@ from pathlib import Path
 from typing import Dict, Any
 import pytest
 
-# Add the plugins and shared directories to the path
-# This mimics how external plugin developers would structure their imports
+# Add the SDK and plugin directories to the path
 PROJECT_ROOT = Path(__file__).parent.parent.parent
-PLUGINS_DIR = PROJECT_ROOT / "plugins"
-SHARED_DIR = PLUGINS_DIR / "shared"
-INPUT_DIR = PLUGINS_DIR / "input"
+SDK_PATH = PROJECT_ROOT / "plugins" / "shared" / "python"
+INPUT_PLUGINS_DIR = PROJECT_ROOT / "plugins" / "input"
 
-sys.path.insert(0, str(INPUT_DIR))
-sys.path.insert(0, str(SHARED_DIR))
+# Add SDK to path so we can import it
+sys.path.insert(0, str(SDK_PATH))
+
+# Add plugin directories to path
+sys.path.insert(0, str(INPUT_PLUGINS_DIR / "code"))
+sys.path.insert(0, str(INPUT_PLUGINS_DIR / "code"))
+
+# Import from the SDK
+from csd_plugin_sdk import (
+    PluginInput,
+    PluginOutput,
+    CodeElement,
+    Import,
+    Relationship,
+    ExternalDependency,
+)
 
 
 @pytest.fixture
@@ -39,8 +51,6 @@ def temp_project_dir():
 @pytest.fixture
 def sample_plugin_input(temp_project_dir):
     """Create a sample PluginInput for testing."""
-    from base_analyzer import PluginInput
-
     test_file = temp_project_dir / "src" / "test.py"
     test_file.write_text("def hello():\n    print('world')\n")
 
@@ -63,8 +73,6 @@ def sample_plugin_config():
 @pytest.fixture
 def sample_code_elements():
     """Sample code elements for testing."""
-    from base_analyzer import CodeElement
-
     return [
         CodeElement(
             element_type="function",
@@ -94,8 +102,6 @@ def sample_code_elements():
 @pytest.fixture
 def sample_imports():
     """Sample imports for testing."""
-    from base_analyzer import Import
-
     return [
         Import(
             module="os", items=[], alias=None, line_number=1, import_type="standard"
@@ -120,8 +126,6 @@ def sample_imports():
 @pytest.fixture
 def sample_relationships():
     """Sample relationships for testing."""
-    from base_analyzer import Relationship
-
     return [
         Relationship(
             from_file="src/main.py",
@@ -145,8 +149,6 @@ def sample_relationships():
 @pytest.fixture
 def sample_external_dependencies():
     """Sample external dependencies for testing."""
-    from base_analyzer import ExternalDependency
-
     return [
         ExternalDependency(
             name="requests",
@@ -173,8 +175,6 @@ def complete_plugin_output(
     sample_external_dependencies,
 ):
     """A complete PluginOutput for testing."""
-    from base_analyzer import PluginOutput
-
     return PluginOutput(
         file_path="/project/src/main.py",
         file_hash="abc123def456",

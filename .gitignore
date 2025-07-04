@@ -69,7 +69,7 @@ docs/build/
 # CSD specific
 .csd_cache/
 csdrc.local.yaml
-output/
+.csd_output/
 
 # Added by cargo
 

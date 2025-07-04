@@ -14,8 +14,9 @@ import sys
 from unittest.mock import patch
 import pytest
 
-# Import the modules we're testing
-from base_analyzer import (
+
+# Import the modules we're testing from the SDK
+from csd_plugin_sdk import (
     PluginInput,
     PluginOutput,
 )

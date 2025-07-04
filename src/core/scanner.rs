@@ -102,7 +102,7 @@ impl ProjectScanner {
         // Resolve plugin path
         let plugin_path = match &plugin_config.source {
             crate::utils::config::PluginSource::Builtin { name } => {
-                PathBuf::from(format!("plugins/input/{name}_analyzer.py"))
+                PathBuf::from(format!("plugins/input/{name}.py"))
             }
             crate::utils::config::PluginSource::Local { path } => PathBuf::from(path),
             _ => {
