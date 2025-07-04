@@ -2,7 +2,7 @@
 # This file configures how csd analyzes your code and generates outputs
 
 # Output directory for generated reports and documentation
-output_dir: "output"
+output_dir: ".csd_output"
 
 # Python executable to use for plugins (optional - will auto-detect if not specified)
 # python_executable: "python"     # Default: auto-detect
@@ -40,7 +40,7 @@ input_plugins:
   python:
     source:
       type: "builtin"
-      name: "python"
+      name: "code/python_analyzer"
     file_patterns:
       extensions: [".py"]
       filenames: ["requirements.txt", "setup.py", "pyproject.toml", "Pipfile", "poetry.lock", "tox.ini", "pytest.ini"]
@@ -54,7 +54,7 @@ input_plugins:
   rust:
     source:
       type: "builtin"
-      name: "rust"
+      name: "code/rust_analyzer"
     file_patterns:
       extensions: [".rs"]
       filenames: ["Cargo.toml", "Cargo.lock", ".rustfmt.toml", "rust-toolchain.toml"]
@@ -70,7 +70,7 @@ output_plugins:
   markdown_docs:
     source:
       type: "builtin"
-      name: "markdown_docs"
+      name: "docs/markdown_docs"
     output_types: ["documentation"]
     formats: ["markdown"]
     enabled: true

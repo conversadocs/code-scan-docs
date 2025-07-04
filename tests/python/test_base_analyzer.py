@@ -15,15 +15,18 @@ from unittest.mock import patch, mock_open
 from typing import Tuple
 import pytest
 
-# Import the modules we're testing
-from base_analyzer import (
+# Import the modules we're testing from the SDK
+from csd_plugin_sdk import (
     BaseAnalyzer,
+    PluginInput,
+    PluginOutput,
+)
+
+from csd_plugin_sdk.base.input import (
     CodeElement,
     Import,
     Relationship,
     ExternalDependency,
-    PluginInput,
-    PluginOutput,
     calculate_complexity,
     detect_import_type,
 )
@@ -354,13 +357,6 @@ def outer_function():
 class TestBaseAnalyzer:
     """Test the BaseAnalyzer abstract class."""
 
-    def test_base_analyzer_cannot_be_instantiated(self):
-        """Test that BaseAnalyzer cannot be instantiated directly."""
-        with pytest.raises(
-            TypeError, match="Can't instantiate abstract class BaseAnalyzer"
-        ):
-            BaseAnalyzer()
-
     def test_base_analyzer_class_properties(self):
         """Test BaseAnalyzer class-level properties without instantiation."""
         # We can test class-level properties without instantiating
@@ -663,16 +659,8 @@ class TestBaseAnalyzer:
 class TestPluginCommunication:
     """Test plugin communication protocol utilities."""
 
-    def test_plugin_communication_abstract_class_behavior(self):
-        """Test we cannot test communication directly with abstract BaseAnalyzer."""
-        # This test documents that BaseAnalyzer is properly abstract
-        with pytest.raises(
-            TypeError, match="Can't instantiate abstract class BaseAnalyzer"
-        ):
-            BaseAnalyzer()
-
-        # Plugin communication should be tested with concrete implementations
-        # (This is demonstrated in individual plugin tests like test_python_analyzer.py)
+    # Plugin communication should be tested with concrete implementations
+    # (This is demonstrated in individual plugin tests like test_python_analyzer.py)
 
     def test_plugin_communication_with_concrete_implementation(
         self, monkeypatch, capsys

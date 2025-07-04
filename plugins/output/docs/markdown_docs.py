@@ -13,7 +13,7 @@ from typing import Tuple, Dict, Any, Optional, List, cast
 # Add the shared directory to the path so we can import base classes
 sys.path.insert(0, str(Path(__file__).parent / "../shared"))
 
-from base_output import (
+from csd_plugin_sdk import (
     BaseOutputPlugin,
     OutputPluginInput,
     OutputPluginResult,
@@ -21,7 +21,7 @@ from base_output import (
     extract_dependencies,
 )
 
-from llm_utils import (
+from csd_plugin_sdk.utils import (
     LLMClient,
     LLMConfig,
     SectionProcessor,

@@ -84,7 +84,7 @@ extend-exclude = '''
 
 [tool.flake8]
 per-file-ignores = [
-    "plugins/output/markdown_docs.py:E501"
+    "plugins/output/docs/markdown_docs.py:E501"
 ]
 
 [tool.mypy]
@@ -114,7 +114,7 @@ disallow_incomplete_defs = false
 source = ["plugins"]
 omit = [
     "tests/*",
-    "plugins/shared/__init__.py",
+    "plugins/shared/csd_plugin_sdk/__init__.py",
     "*/venv/*",
     "*/.venv/*"
 ]
