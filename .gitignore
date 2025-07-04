@@ -67,8 +67,9 @@ docs/build/
 .watchmanconfig
 
 # CSD specific
-.csd_cache/          # Downloaded plugins
-csdrc.local.yaml     # Local overrides
+.csd_cache/
+csdrc.local.yaml
+output/
 
 # Added by cargo
 

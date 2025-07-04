@@ -8,6 +8,22 @@
 
 Armed with this in-depth analysis, `code-scan-docs` can perform automated code reviews, identifying bad coding practices and potential security vulnerabilities. It also facilitates the creation of comprehensive documentation by generating content or populating existing templates, ensuring that your documentation stays up-to-date with minimal manual effort. Whether you're aiming to improve code quality, enhance security, or streamline documentation, `code-scan-docs` integrates seamlessly into your development workflow to support these goals.
 
+## Installation
+
+<!-- CSD:SECTION:installation -->
+
+Basic installation instructions go here.
+
+<!-- /CSD:SECTION:installation -->
+
+## Usage
+
+<!-- CSD:SECTION:usage -->
+
+Usage examples will be generated here.
+
+<!-- /CSD:SECTION:usage -->
+
 ## Contributors ✨
 
 Thanks goes to these wonderful people ([emoji key](https://allcontributors.org/docs/en/emoji-key)):

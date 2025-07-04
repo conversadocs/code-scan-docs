@@ -82,6 +82,11 @@ extend-exclude = '''
 )/
 '''
 
+[tool.flake8]
+per-file-ignores = [
+    "plugins/output/markdown_docs.py:E501"
+]
+
 [tool.mypy]
 python_version = "3.8"
 warn_return_any = true

@@ -1,11 +1,12 @@
 use anyhow::{Context, Result};
-use log::{debug, error, warn};
+use log::{debug, error, info, warn};
 use serde_json;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::Duration;
 use tokio::fs;
 use tokio::process::Command;
+use tokio::time::{interval, timeout};
 use uuid::Uuid;
 
 use crate::plugins::interface::{
@@ -70,7 +71,7 @@ impl PluginCommunicator {
         Ok(())
     }
 
-    /// Send a message to the plugin using file-based communication
+    /// Send a message to the plugin with progress indication
     pub async fn send_message(&self, message: PluginMessage) -> Result<PluginResponse> {
         debug!("Sending message to plugin: {}", self.plugin_path.display());
 
@@ -88,39 +89,39 @@ impl PluginCommunicator {
 
         debug!("Wrote plugin input to: {}", input_file_path.display());
 
-        let result = tokio::time::timeout(Duration::from_secs(30), async {
-            let input_file =
-                std::fs::File::open(&input_file_path).context("Failed to open input file")?;
+        // Determine appropriate timeout and progress message based on message type
+        let (global_timeout_secs, progress_interval_secs, operation_name) = match &message {
+            PluginMessage::Analyze { .. } => (300, 30, "Analyzing code"),
+            PluginMessage::Generate { .. } => (600, 30, "Generating documentation"), // LLM operations take longer
+            PluginMessage::CanAnalyze { .. } => (30, 10, "Checking file compatibility"),
+            PluginMessage::CanGenerate { .. } => (30, 10, "Checking generation capability"),
+            PluginMessage::GetInfo => (30, 10, "Getting plugin info"),
+        };
 
-            let child = Command::new(&self.python_executable)
-                .arg(&self.plugin_path)
-                .stdin(Stdio::from(input_file))
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
-                .spawn()
-                .context(format!(
-                    "Failed to spawn plugin process: {} {}",
-                    self.python_executable,
-                    self.plugin_path.display()
-                ))?;
+        info!(
+            "{} with plugin: {}",
+            operation_name,
+            self.plugin_path
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+        );
 
-            let output = child
-                .wait_with_output()
-                .await
-                .context("Failed to wait for plugin process")?;
+        let result = self
+            .run_with_progress_indicator(
+                input_file_path.clone(),
+                Duration::from_secs(global_timeout_secs),
+                Duration::from_secs(progress_interval_secs),
+                operation_name,
+            )
+            .await;
 
-            Ok::<std::process::Output, anyhow::Error>(output)
-        })
-        .await;
-
+        // Clean up input file
         let _ = fs::remove_file(&input_file_path).await;
 
         let output = match result {
-            Ok(Ok(output)) => output,
-            Ok(Err(e)) => return Err(e),
-            Err(_) => {
-                return Err(anyhow::anyhow!("Plugin process timed out after 30 seconds"));
-            }
+            Ok(output) => output,
+            Err(e) => return Err(e),
         };
 
         let stdout_str = String::from_utf8_lossy(&output.stdout);
@@ -164,6 +165,89 @@ impl PluginCommunicator {
         )?;
 
         Ok(response)
+    }
+
+    /// Run plugin process with progress indication
+    async fn run_with_progress_indicator(
+        &self,
+        input_file_path: PathBuf,
+        global_timeout: Duration,
+        progress_interval: Duration,
+        operation_name: &str,
+    ) -> Result<std::process::Output> {
+        // Start the plugin process
+        let process_future = async {
+            let input_file =
+                std::fs::File::open(&input_file_path).context("Failed to open input file")?;
+
+            let child = Command::new(&self.python_executable)
+                .arg(&self.plugin_path)
+                .stdin(Stdio::from(input_file))
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+                .context(format!(
+                    "Failed to spawn plugin process: {} {}",
+                    self.python_executable,
+                    self.plugin_path.display()
+                ))?;
+
+            child
+                .wait_with_output()
+                .await
+                .context("Failed to wait for plugin process")
+        };
+
+        // Progress indicator task
+        let progress_future = async {
+            let mut interval_timer = interval(progress_interval);
+            let mut elapsed_secs = 0;
+
+            loop {
+                interval_timer.tick().await;
+                elapsed_secs += progress_interval.as_secs();
+
+                // Show progress with different messages to keep it interesting
+                let progress_msg = match elapsed_secs {
+                    30 => format!(
+                        "⏳ {operation_name} is taking longer than expected, still working..."
+                    ),
+                    60 => format!("🔄 {operation_name} in progress (1 minute elapsed)..."),
+                    120 => format!("⚙️  {operation_name} continuing (2 minutes elapsed)..."),
+                    180 => format!("🎯 {operation_name} almost there (3 minutes elapsed)..."),
+                    240 => format!("⏱️  {operation_name} taking a while (4 minutes elapsed)..."),
+                    300 => format!("🚀 {operation_name} final stretch (5 minutes elapsed)..."),
+                    _ => {
+                        let minutes = elapsed_secs / 60;
+                        format!("⌛ {operation_name} still running ({minutes} minutes elapsed)...")
+                    }
+                };
+
+                info!("{progress_msg}");
+            }
+        };
+
+        // Race the process against the global timeout, with progress updates
+        match timeout(global_timeout, async {
+            tokio::select! {
+                result = process_future => result,
+                _ = progress_future => unreachable!("Progress task should never complete"),
+            }
+        })
+        .await
+        {
+            Ok(result) => {
+                info!("✅ {operation_name} completed successfully");
+                result
+            }
+            Err(_) => {
+                let timeout_minutes = global_timeout.as_secs() / 60;
+                warn!("⏰ {operation_name} timed out after {timeout_minutes} minutes");
+                Err(anyhow::anyhow!(
+                    "{operation_name} timed out after {timeout_minutes} minutes. This may indicate the operation is still running in the background."
+                ))
+            }
+        }
     }
 
     /// Get plugin information with type identification
