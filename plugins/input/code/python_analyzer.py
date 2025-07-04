@@ -30,6 +30,7 @@ class PythonAnalyzer(BaseAnalyzer):
     """Analyzer for Python files and Python ecosystem files."""
 
     def __init__(self):
+        """Initialize the PythonAnalyzer instance."""
         super().__init__()
         self.name = "python"
         self.version = "1.0.0"
@@ -50,21 +51,17 @@ class PythonAnalyzer(BaseAnalyzer):
         """Check if this plugin can analyze the given file."""
         path = Path(file_path)
 
-        # Check by extension
         if path.suffix in self.supported_extensions:
             return True, 1.0
 
-        # Check by filename
         if path.name.lower() in [name.lower() for name in self.supported_filenames]:
             return True, 0.9
 
-        # Check content for Python shebang or obvious Python code
         if content_preview.startswith(
             "#!/usr/bin/env python"
         ) or content_preview.startswith("#!/usr/bin/python"):
             return True, 0.8
 
-        # Look for Python keywords in the preview
         python_indicators = ["def ", "class ", "import ", "from ", "__name__"]
         indicator_count = sum(
             1 for indicator in python_indicators if indicator in content_preview
@@ -81,7 +78,6 @@ class PythonAnalyzer(BaseAnalyzer):
         """Analyze a Python file."""
         file_path = Path(input_data.file_path)
 
-        # Handle different file types
         if file_path.suffix == ".py":
             return self._analyze_python_code(input_data)
         elif file_path.name.lower() == "requirements.txt":
@@ -91,19 +87,16 @@ class PythonAnalyzer(BaseAnalyzer):
         elif file_path.name.lower() == "pyproject.toml":
             return self._analyze_pyproject_toml(input_data)
         else:
-            # Try to analyze as Python code
             return self._analyze_python_code(input_data)
 
     def _analyze_python_code(self, input_data: PluginInput) -> PluginOutput:
         """Analyze a .py file using AST parsing."""
         try:
-            # Parse the Python code
             tree = ast.parse(input_data.content)
         except SyntaxError as e:
-            # Return minimal result for unparseable files
             return PluginOutput(
                 file_path=input_data.file_path,
-                file_hash="",  # Will be filled by core
+                file_hash="",
                 elements=[],
                 imports=[],
                 exports=[],
@@ -112,7 +105,6 @@ class PythonAnalyzer(BaseAnalyzer):
                 file_summary=f"Syntax error in Python file: {e}",
             )
 
-        # Extract elements
         elements = self._extract_elements(tree, input_data.content)
         imports = self._extract_imports(tree, input_data)
         exports = self._extract_exports(tree)
@@ -120,12 +112,12 @@ class PythonAnalyzer(BaseAnalyzer):
 
         return PluginOutput(
             file_path=input_data.file_path,
-            file_hash="",  # Will be filled by core
+            file_hash="",
             elements=elements,
             imports=imports,
             exports=exports,
             relationships=relationships,
-            external_dependencies=[],  # No external deps from .py files directly
+            external_dependencies=[],
         )
 
     def _extract_elements(self, tree: ast.AST, content: str) -> List[CodeElement]:
@@ -142,7 +134,6 @@ class PythonAnalyzer(BaseAnalyzer):
             elif isinstance(node, (ast.Assign, ast.AnnAssign)) and hasattr(
                 node, "lineno"
             ):
-                # Module-level variables
                 var_element = self._create_variable_element(node, content)
                 if var_element:
                     elements.append(var_element)
@@ -153,19 +144,15 @@ class PythonAnalyzer(BaseAnalyzer):
         self, node: ast.FunctionDef, content: str
     ) -> CodeElement:
         """Create a CodeElement for a function."""
-        # Extract function signature
         args = [arg.arg for arg in node.args.args]
         signature = f"def {node.name}({', '.join(args)})"
 
-        # Find function calls within this function
         calls = self._extract_function_calls(node)
 
-        # Calculate complexity
         complexity = calculate_complexity(
             content, node.lineno, node.end_lineno or node.lineno
         )
 
-        # Check for decorators
         decorators = [self._get_decorator_name(d) for d in node.decorator_list]
 
         return CodeElement(
@@ -188,7 +175,6 @@ class PythonAnalyzer(BaseAnalyzer):
         self, node: ast.AsyncFunctionDef, content: str
     ) -> CodeElement:
         """Create a CodeElement for an async function."""
-        # Similar to regular function but mark as async
         args = [arg.arg for arg in node.args.args]
         signature = f"async def {node.name}({', '.join(args)})"
 
@@ -216,13 +202,11 @@ class PythonAnalyzer(BaseAnalyzer):
 
     def _create_class_element(self, node: ast.ClassDef, content: str) -> CodeElement:
         """Create a CodeElement for a class."""
-        # Extract base classes
         bases = [self._get_name_from_node(base) for base in node.bases]
         signature = (
             f"class {node.name}({', '.join(bases)})" if bases else f"class {node.name}"
         )
 
-        # Find methods in this class
         methods = []
         for item in node.body:
             if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
@@ -236,7 +220,7 @@ class PythonAnalyzer(BaseAnalyzer):
             signature=signature,
             line_start=node.lineno,
             line_end=node.end_lineno or node.lineno,
-            calls=methods,  # Methods are like "calls" for a class
+            calls=methods,
             metadata={
                 "base_classes": bases,
                 "methods": methods,
@@ -250,10 +234,8 @@ class PythonAnalyzer(BaseAnalyzer):
     ) -> Optional[CodeElement]:
         """Create a CodeElement for a module-level variable."""
         if isinstance(node, ast.Assign):
-            # Only handle simple assignments to names
             if len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
                 var_name = node.targets[0].id
-                # Skip private variables and common patterns
                 if not var_name.startswith("_") and var_name.isupper():
                     return CodeElement(
                         element_type="variable",
@@ -285,7 +267,7 @@ class PythonAnalyzer(BaseAnalyzer):
                 if call_name:
                     calls.append(call_name)
 
-        return list(set(calls))  # Remove duplicates
+        return list(set(calls))
 
     def _extract_imports(self, tree: ast.AST, input_data: PluginInput) -> List[Import]:
         """Extract import statements from AST."""
@@ -331,7 +313,7 @@ class PythonAnalyzer(BaseAnalyzer):
 
         for node in tree.body:
             if isinstance(node, ast.FunctionDef):
-                if not node.name.startswith("_"):  # Skip private functions
+                if not node.name.startswith("_"):
                     exports.append(node.name)
             elif isinstance(node, ast.AsyncFunctionDef):
                 if not node.name.startswith("_"):
@@ -340,7 +322,6 @@ class PythonAnalyzer(BaseAnalyzer):
                 if not node.name.startswith("_"):
                     exports.append(node.name)
             elif isinstance(node, ast.Assign):
-                # Module-level variables
                 for target in node.targets:
                     if isinstance(target, ast.Name) and not target.id.startswith("_"):
                         exports.append(target.id)
@@ -355,7 +336,6 @@ class PythonAnalyzer(BaseAnalyzer):
 
         for imp in imports:
             if imp.import_type == "local":
-                # Try to resolve the actual file path
                 target_file = self._resolve_import_path(imp.module, input_data)
                 if target_file:
                     relationships.append(
@@ -378,10 +358,8 @@ class PythonAnalyzer(BaseAnalyzer):
         project_root = Path(input_data.project_root)
         current_dir = Path(input_data.file_path).parent
 
-        # Convert module name to path
         module_path = module_name.replace(".", "/")
 
-        # Try different locations
         potential_paths = [
             project_root / f"{module_path}.py",
             project_root / f"{module_path}/__init__.py",
@@ -407,8 +385,6 @@ class PythonAnalyzer(BaseAnalyzer):
             if not line or line.startswith("#"):
                 continue
 
-            # Parse requirement line (basic parsing)
-            # Handle formats like: package==1.0.0, package>=1.0, package[extra]
             if "==" in line:
                 name, version = line.split("==", 1)
                 name = name.strip()
@@ -423,7 +399,6 @@ class PythonAnalyzer(BaseAnalyzer):
                 name = line.strip()
                 version = None
 
-            # Remove extras (e.g., package[extra])
             if "[" in name:
                 name = name.split("[")[0]
 
@@ -450,10 +425,8 @@ class PythonAnalyzer(BaseAnalyzer):
 
     def _analyze_setup_py(self, input_data: PluginInput) -> PluginOutput:
         """Analyze a setup.py file."""
-        # For now, treat setup.py as a regular Python file but also extract dependencies
         result = self._analyze_python_code(input_data)
 
-        # Try to extract dependencies from setup() call
         dependencies = self._extract_setup_dependencies(input_data.content)
         result.external_dependencies.extend(dependencies)
         result.file_summary = f"Python setup file with {len(dependencies)} dependencies"
@@ -464,8 +437,6 @@ class PythonAnalyzer(BaseAnalyzer):
         """Extract dependencies from setup.py content."""
         dependencies = []
 
-        # Look for install_requires and other dependency lists
-        # This is a simple regex-based approach
         patterns = [
             r"install_requires\s*=\s*\[(.*?)\]",
             r"requires\s*=\s*\[(.*?)\]",
@@ -474,7 +445,6 @@ class PythonAnalyzer(BaseAnalyzer):
         for pattern in patterns:
             matches = re.findall(pattern, content, re.DOTALL)
             for match in matches:
-                # Extract quoted strings
                 deps = re.findall(r'["\']([^"\']+)["\']', match)
                 for dep in deps:
                     if ">=" in dep:
@@ -500,8 +470,6 @@ class PythonAnalyzer(BaseAnalyzer):
         """Analyze a pyproject.toml file."""
         dependencies = []
 
-        # Basic TOML parsing (we could use a proper TOML parser)
-        # For now, just look for dependency patterns
         lines = input_data.content.split("\n")
         in_dependencies = False
 
@@ -519,10 +487,9 @@ class PythonAnalyzer(BaseAnalyzer):
                 parts = line.split("=", 1)
                 if len(parts) == 2:
                     name = parts[0].strip()
-                    # Remove quotes from name
                     name = name.strip("\"'")
 
-                    if name != "python":  # Skip Python version spec
+                    if name != "python":
                         dependencies.append(
                             ExternalDependency(
                                 name=name,
@@ -558,7 +525,7 @@ class PythonAnalyzer(BaseAnalyzer):
             return self._get_name_from_node(node.func)
         elif isinstance(node, ast.Constant) and isinstance(node.value, str):
             return node.value
-        elif isinstance(node, ast.Str):  # For older Python versions
+        elif isinstance(node, ast.Str):
             return node.s
         else:
             return None

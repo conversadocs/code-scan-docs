@@ -27,6 +27,7 @@ class OutputPluginInput:
     format_options: Dict[str, Any] = None
 
     def __post_init__(self):
+        """Initialize default values after dataclass initialization."""
         if self.format_options is None:
             self.format_options = {}
 
@@ -42,6 +43,7 @@ class GeneratedOutput:
     metadata: Dict[str, Any] = None
 
     def __post_init__(self):
+        """Initialize default metadata if not provided."""
         if self.metadata is None:
             self.metadata = {}
 
@@ -58,6 +60,7 @@ class OutputPluginResult:
     metadata: Dict[str, Any] = None
 
     def __post_init__(self):
+        """Initialize default metadata if not provided."""
         if self.metadata is None:
             self.metadata = {}
 
@@ -66,11 +69,12 @@ class BaseOutputPlugin(ABC):
     """Base class for all CSD output plugins."""
 
     def __init__(self):
+        """Initialize the base output plugin."""
         self.name = self.__class__.__name__
         self.version = "1.0.0"
         self.plugin_type = "output"
-        self.supported_output_types = []  # e.g., ["documentation", "quality_report"]
-        self.supported_formats = []  # e.g., ["markdown", "html", "pdf"]
+        self.supported_output_types = []
+        self.supported_formats = []
 
     @abstractmethod
     def can_generate(self, output_type: str, format: str) -> Tuple[bool, float]:
@@ -82,7 +86,7 @@ class BaseOutputPlugin(ABC):
             format: Output format (e.g., "markdown", "html", "pdf")
 
         Returns:
-            (can_generate: bool, confidence: float)
+            Tuple containing can_generate (bool) and confidence (float).
         """
         pass
 
@@ -105,8 +109,8 @@ class BaseOutputPlugin(ABC):
             "name": self.name,
             "version": self.version,
             "plugin_type": self.plugin_type,
-            "supported_extensions": [],  # Output plugins don't analyze files
-            "supported_filenames": [],  # Output plugins don't analyze files
+            "supported_extensions": [],
+            "supported_filenames": [],
             "supported_output_types": self.supported_output_types,
             "supported_formats": self.supported_formats,
         }
@@ -118,7 +122,6 @@ class BaseOutputPlugin(ABC):
         timestamp = int(time.time())
         clean_name = base_name.replace(" ", "_").replace("/", "_").replace("\\", "_")
 
-        # Get appropriate extension for format
         ext = self._get_extension_for_format(format)
 
         filename = f"{clean_name}_{timestamp}{ext}"
@@ -189,11 +192,9 @@ class BaseOutputPlugin(ABC):
     def run(self):
         """Main entry point for plugin execution."""
         try:
-            # Configure stdout to be line buffered
             typing.cast(io.TextIOWrapper, sys.stdout).reconfigure(line_buffering=True)
             typing.cast(io.TextIOWrapper, sys.stderr).reconfigure(line_buffering=True)
 
-            # Read all input from stdin
             try:
                 input_data = sys.stdin.read().strip()
             except Exception as e:
@@ -219,14 +220,12 @@ class BaseOutputPlugin(ABC):
                 self._send_error("No input received")
                 return
 
-            # Parse the message
             try:
                 message = json.loads(input_data)
             except json.JSONDecodeError as e:
                 self._send_error(f"Invalid JSON: {e}")
                 return
 
-            # Handle the message
             if message.get("type") == "can_generate":
                 self._handle_can_generate(message)
             elif message.get("type") == "generate":
@@ -271,11 +270,9 @@ class BaseOutputPlugin(ABC):
             result = self.generate(input_data)
             end_time = time.time()
 
-            # Update timing
             result.processing_time_ms = int((end_time - start_time) * 1000)
             result.plugin_version = self.version
 
-            # Send back the complete result
             response = {
                 "status": "output_success",
                 "result": asdict(result),
@@ -319,10 +316,7 @@ def calculate_file_metrics(matrix_data: Dict[str, Any]) -> Dict[str, Any]:
     total_files = len(files)
     total_size = sum(file_info.get("size_bytes", 0) for file_info in files.values())
 
-    # Count by language/plugin
     by_plugin: Dict[str, int] = {}
-    total_elements = 0
-    total_complexity = 0
     total_elements = 0
     total_complexity = 0
 

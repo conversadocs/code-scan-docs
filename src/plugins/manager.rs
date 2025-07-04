@@ -240,16 +240,25 @@ impl PluginManager {
         &self,
         _name: &str,
         source: &PluginSource,
-        plugin_type: &str,
+        plugin_category: &str, // "input" or "output"
     ) -> Result<PathBuf> {
         match source {
             PluginSource::Local { path } => Ok(PathBuf::from(path)),
-            PluginSource::Builtin { name: plugin_name } => {
-                // Built-in plugins are organized by type
-                match plugin_type {
-                    "input" => Ok(PathBuf::from(format!("plugins/input/{plugin_name}.py"))),
-                    "output" => Ok(PathBuf::from(format!("plugins/output/{plugin_name}.py"))),
-                    _ => Err(anyhow::anyhow!("Unknown plugin type: {plugin_type}")),
+            PluginSource::Builtin {
+                name: plugin_name,
+                plugin_type,
+            } => {
+                // Built-in plugins are organized by category and type
+                match plugin_category {
+                    "input" => Ok(PathBuf::from(format!(
+                        "plugins/input/{plugin_type}/{plugin_name}.py"
+                    ))),
+                    "output" => Ok(PathBuf::from(format!(
+                        "plugins/output/{plugin_type}/{plugin_name}.py"
+                    ))),
+                    _ => Err(anyhow::anyhow!(
+                        "Unknown plugin category: {plugin_category}"
+                    )),
                 }
             }
             PluginSource::GitHub { repo, version } => {

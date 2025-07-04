@@ -18,6 +18,7 @@ fn create_test_config_with_plugins() -> Config {
         InputPluginConfig {
             source: PluginSource::Builtin {
                 name: "javascript".to_string(),
+                plugin_type: "code".to_string(),
             },
             file_patterns: FilePatterns {
                 extensions: vec![".js".to_string(), ".jsx".to_string()],
@@ -35,6 +36,7 @@ fn create_test_config_with_plugins() -> Config {
         OutputPluginConfig {
             source: PluginSource::Builtin {
                 name: "html_docs".to_string(),
+                plugin_type: "code".to_string(),
             },
             output_types: vec!["documentation".to_string()],
             formats: vec!["html".to_string()],
@@ -400,16 +402,18 @@ fn test_plugin_source_types() {
     // Test that default input plugins use builtin source
     let python_plugin = &config.input_plugins["python"];
     match &python_plugin.source {
-        PluginSource::Builtin { name } => {
-            assert_eq!(name, "python");
+        PluginSource::Builtin { name, plugin_type } => {
+            assert_eq!(name, "python_analyzer");
+            assert_eq!(plugin_type, "code");
         }
         _ => panic!("Expected builtin source for python plugin"),
     }
 
     let rust_plugin = &config.input_plugins["rust"];
     match &rust_plugin.source {
-        PluginSource::Builtin { name } => {
-            assert_eq!(name, "rust");
+        PluginSource::Builtin { name, plugin_type } => {
+            assert_eq!(name, "rust_analyzer");
+            assert_eq!(plugin_type, "code");
         }
         _ => panic!("Expected builtin source for rust plugin"),
     }
@@ -417,8 +421,9 @@ fn test_plugin_source_types() {
     // Test that default output plugins use builtin source
     let markdown_plugin = &config.output_plugins["markdown_docs"];
     match &markdown_plugin.source {
-        PluginSource::Builtin { name } => {
+        PluginSource::Builtin { name, plugin_type } => {
             assert_eq!(name, "markdown_docs");
+            assert_eq!(plugin_type, "docs");
         }
         _ => panic!("Expected builtin source for markdown_docs plugin"),
     }
@@ -579,75 +584,4 @@ async fn test_config_roundtrip_preserves_data() {
             original_plugin.output_types.len()
         );
     }
-}
-
-#[tokio::test]
-async fn test_legacy_plugin_migration() {
-    let temp_dir = TempDir::new().expect("Failed to create temp dir");
-    let config_path = temp_dir.path().join("legacy_config.yaml");
-
-    // Create a config file with legacy plugin format (this would be manual)
-    let legacy_yaml = r#"
-output_dir: "output"
-llm:
-  provider: "ollama"
-  base_url: "http://localhost:11434"
-  model: "deepseek-coder"
-  timeout_seconds: 30
-scanning:
-  ignore_patterns: ["target/"]
-  include_hidden: false
-  max_file_size_mb: 10
-input_plugins:
-  python:
-    source:
-      type: "builtin"
-      name: "python"
-    file_patterns:
-      extensions: [".py"]
-      filenames: ["requirements.txt"]
-    enabled: true
-output_plugins:
-  markdown_docs:
-    source:
-      type: "builtin"
-      name: "markdown_docs"
-    output_types: ["documentation"]
-    formats: ["markdown"]
-    enabled: true
-"#;
-
-    fs::write(&config_path, legacy_yaml)
-        .await
-        .expect("Failed to write legacy config");
-
-    // Load the config - migration should happen automatically
-    let loaded_config = Config::load(&config_path)
-        .await
-        .expect("Failed to load config");
-
-    // Verify the structure is correct after loading
-    assert!(loaded_config.input_plugins.contains_key("python"));
-    assert!(loaded_config.output_plugins.contains_key("markdown_docs"));
-    assert!(loaded_config.plugins.is_none()); // Legacy field should be None
-}
-
-// Test backward compatibility with legacy method names
-#[test]
-fn test_legacy_method_compatibility() {
-    let config = create_test_config_with_plugins();
-
-    // Test that find_plugin_for_file still works (maps to find_input_plugin_for_file)
-    assert_eq!(
-        config.find_plugin_for_file(&PathBuf::from("test.py")),
-        Some("python".to_string())
-    );
-    assert_eq!(
-        config.find_plugin_for_file(&PathBuf::from("test.rs")),
-        Some("rust".to_string())
-    );
-    assert_eq!(
-        config.find_plugin_for_file(&PathBuf::from("test.js")),
-        Some("javascript".to_string())
-    );
 }

@@ -23,6 +23,7 @@ class RustAnalyzer(BaseAnalyzer):
     """Analyzer for Rust files and Rust ecosystem files."""
 
     def __init__(self):
+        """Initialize the RustAnalyzer instance."""
         super().__init__()
         self.name = "rust"
         self.version = "1.0.0"
@@ -39,15 +40,12 @@ class RustAnalyzer(BaseAnalyzer):
         """Check if this plugin can analyze the given file."""
         path = Path(file_path)
 
-        # Check by extension
         if path.suffix in self.supported_extensions:
             return True, 1.0
 
-        # Check by filename
         if path.name.lower() in [name.lower() for name in self.supported_filenames]:
             return True, 0.9
 
-        # Check content for Rust-specific keywords
         rust_indicators = [
             "fn ",
             "struct ",
@@ -73,7 +71,6 @@ class RustAnalyzer(BaseAnalyzer):
         """Analyze a Rust file."""
         file_path = Path(input_data.file_path)
 
-        # Handle different file types
         if file_path.suffix == ".rs":
             return self._analyze_rust_code(input_data)
         elif file_path.name == "Cargo.toml":
@@ -81,7 +78,6 @@ class RustAnalyzer(BaseAnalyzer):
         elif file_path.name == "Cargo.lock":
             return self._analyze_cargo_lock(input_data)
         else:
-            # Try to analyze as Rust code
             return self._analyze_rust_code(input_data)
 
     def _analyze_rust_code(self, input_data: PluginInput) -> PluginOutput:
@@ -89,7 +85,6 @@ class RustAnalyzer(BaseAnalyzer):
         content = input_data.content
         lines = content.split("\n")
 
-        # Extract elements
         elements = self._extract_elements(content, lines)
         imports = self._extract_imports(content, lines, input_data)
         exports = self._extract_exports(content, lines)
@@ -97,19 +92,18 @@ class RustAnalyzer(BaseAnalyzer):
 
         return PluginOutput(
             file_path=input_data.file_path,
-            file_hash="",  # Will be filled by core
+            file_hash="",
             elements=elements,
             imports=imports,
             exports=exports,
             relationships=relationships,
-            external_dependencies=[],  # No external deps from .rs files directly
+            external_dependencies=[],
         )
 
     def _extract_elements(self, content: str, lines: List[str]) -> List[CodeElement]:
         """Extract code elements (functions, structs, etc.) from Rust code."""
         elements = []
 
-        # Patterns for different Rust constructs
         patterns = {
             "function": [
                 r"^\s*(pub\s+)?fn\s+(\w+)",
@@ -142,7 +136,6 @@ class RustAnalyzer(BaseAnalyzer):
         for line_num, line in enumerate(lines, 1):
             line_stripped = line.strip()
 
-            # Skip comments and empty lines
             if not line_stripped or line_stripped.startswith("//"):
                 continue
 
@@ -150,23 +143,18 @@ class RustAnalyzer(BaseAnalyzer):
                 for pattern in type_patterns:
                     match = re.match(pattern, line)
                     if match:
-                        # Extract the name (usually the last capture group)
                         name = match.groups()[-1]
 
-                        # Find the end of this element (simplified)
                         end_line = self._find_element_end(
                             lines, line_num - 1, line_stripped
                         )
 
-                        # Calculate complexity
                         complexity = calculate_complexity(content, line_num, end_line)
 
-                        # Extract function calls within this element
                         calls = self._extract_calls_in_range(
                             lines, line_num - 1, end_line - 1
                         )
 
-                        # Check for visibility and other modifiers
                         is_public = "pub " in line
                         is_async = "async " in line and element_type == "function"
 
@@ -198,7 +186,6 @@ class RustAnalyzer(BaseAnalyzer):
         self, lines: List[str], start_line: int, start_line_content: str
     ) -> int:
         """Find the end line of a Rust element (simplified brace matching)."""
-        # If it's a single-line declaration, return the same line
         if start_line_content.endswith(";"):
             return start_line + 1
 
@@ -206,7 +193,6 @@ class RustAnalyzer(BaseAnalyzer):
         in_element = False
 
         for i, line in enumerate(lines[start_line:], start_line):
-            # Count braces
             open_braces = line.count("{")
             close_braces = line.count("}")
 
@@ -216,11 +202,9 @@ class RustAnalyzer(BaseAnalyzer):
 
             brace_count -= close_braces
 
-            # If we're in an element and braces are balanced, we've found the end
             if in_element and brace_count <= 0:
                 return i + 1
 
-        # If we couldn't find the end, estimate
         return min(start_line + 20, len(lines))
 
     def _extract_calls_in_range(
@@ -229,7 +213,6 @@ class RustAnalyzer(BaseAnalyzer):
         """Extract function/method calls within a range of lines."""
         calls: Set[str] = set()
 
-        # Simple patterns for function calls
         call_patterns = [
             r"(\w+)\s*\(",  # Simple function calls
             r"\.(\w+)\s*\(",  # Method calls
@@ -247,7 +230,6 @@ class RustAnalyzer(BaseAnalyzer):
                     else:
                         calls.add(match)
 
-        # Filter out common keywords and operators
         keywords = {
             "if",
             "else",
@@ -269,8 +251,8 @@ class RustAnalyzer(BaseAnalyzer):
         imports = []
 
         use_patterns = [
-            r"^\s*use\s+([^;]+);",  # Standard use statements
-            r"^\s*extern\s+crate\s+(\w+)",  # External crates (older style)
+            r"^\s*use\s+([^;]+);",
+            r"^\s*extern\s+crate\s+(\w+)",
         ]
 
         for line_num, line in enumerate(lines, 1):
@@ -279,10 +261,8 @@ class RustAnalyzer(BaseAnalyzer):
                 if match:
                     use_statement = match.group(1).strip()
 
-                    # Parse the use statement
                     module, items = self._parse_use_statement(use_statement)
 
-                    # Determine import type
                     import_type = self._determine_rust_import_type(
                         module, input_data.project_root
                     )
@@ -300,29 +280,19 @@ class RustAnalyzer(BaseAnalyzer):
 
     def _parse_use_statement(self, use_statement: str) -> Tuple[str, List[str]]:
         """Parse a Rust use statement into module and items."""
-        # Handle different use statement formats:
-        # use std::collections::HashMap;
-        # use std::collections::{HashMap, HashSet};
-        # use crate::module::*;
-        # use super::module;
-        # use self::module;
-
         if "::" not in use_statement:
             return use_statement, []
 
         if "{" in use_statement and "}" in use_statement:
-            # Multiple imports: use std::collections::{HashMap, HashSet};
             parts = use_statement.split("{")
             module = parts[0].rstrip(":").strip()
             items_part = parts[1].split("}")[0]
             items = [item.strip() for item in items_part.split(",") if item.strip()]
             return module, items
         elif use_statement.endswith("::*"):
-            # Glob import: use std::collections::*;
             module = use_statement[:-3]
             return module, ["*"]
         else:
-            # Single import: use std::collections::HashMap;
             parts = use_statement.split("::")
             if len(parts) > 1:
                 module = "::".join(parts[:-1])
@@ -344,11 +314,9 @@ class RustAnalyzer(BaseAnalyzer):
         ):
             return "standard"
         else:
-            # Check if it's a local module by looking for mod.rs or [module].rs
             project_path = Path(project_root)
             module_parts = module.split("::")
 
-            # Try to find local module files
             potential_paths = [
                 project_path / "src" / f"{module_parts[0]}.rs",
                 project_path / "src" / module_parts[0] / "mod.rs",
@@ -364,7 +332,6 @@ class RustAnalyzer(BaseAnalyzer):
         """Extract public items that this module exports."""
         exports = []
 
-        # Patterns for public items
         pub_patterns = [
             r"^\s*pub\s+fn\s+(\w+)",
             r"^\s*pub\s+struct\s+(\w+)",
@@ -381,7 +348,7 @@ class RustAnalyzer(BaseAnalyzer):
                 if match:
                     exports.append(match.group(1))
 
-        return list(set(exports))  # Remove duplicates
+        return list(set(exports))
 
     def _extract_relationships(
         self, imports: List[Import], input_data: PluginInput
@@ -391,7 +358,6 @@ class RustAnalyzer(BaseAnalyzer):
 
         for imp in imports:
             if imp.import_type == "local":
-                # Try to resolve the actual file path
                 target_file = self._resolve_rust_module_path(imp.module, input_data)
                 if target_file:
                     relationships.append(
@@ -413,14 +379,11 @@ class RustAnalyzer(BaseAnalyzer):
         """Try to resolve a local Rust module to an actual file path."""
         project_root = Path(input_data.project_root)
 
-        # Remove 'crate::' prefix if present
         if module_name.startswith("crate::"):
             module_name = module_name[7:]
 
-        # Convert module path to file system path
         module_parts = module_name.split("::")
 
-        # Try different locations
         potential_paths = [
             project_root / "src" / f"{'/'.join(module_parts)}.rs",
             project_root / "src" / f"{'/'.join(module_parts)}" / "mod.rs",
@@ -438,21 +401,17 @@ class RustAnalyzer(BaseAnalyzer):
         return None
 
     def simple_toml_parse(self, content: str) -> Dict[str, Any]:
-        """
-        Simple TOML parser for basic dependency extraction.
-        Only handles the subset of TOML we need for Cargo.toml files.
-        """
+        """Simple TOML parser for basic dependency extraction.
+        Only handles the subset of TOML we need for Cargo.toml files."""
         result: Dict[str, Dict[str, Any]] = {}
         current_section = None
 
         for line in content.split("\n"):
             line = line.strip()
 
-            # Skip empty lines and comments
             if not line or line.startswith("#"):
                 continue
 
-            # Section headers
             if line.startswith("[") and line.endswith("]"):
                 section_name = line[1:-1].strip()
                 current_section = section_name
@@ -460,7 +419,6 @@ class RustAnalyzer(BaseAnalyzer):
                     result[current_section] = {}
                 continue
 
-            # Key-value pairs
             if "=" in line and current_section:
                 try:
                     key, value_raw = line.split("=", 1)
@@ -468,13 +426,11 @@ class RustAnalyzer(BaseAnalyzer):
                     value_raw = value_raw.strip()
 
                     value: Union[str, Dict[str, str]]
-                    # Clean up the value
                     if value_raw.startswith('"') and value_raw.endswith('"'):
                         value = value_raw[1:-1]
                     elif value_raw.startswith("'") and value_raw.endswith("'"):
                         value = value_raw[1:-1]
                     elif value_raw.startswith("{") and value_raw.endswith("}"):
-                        # Simple dict parsing for inline tables
                         dict_content = value_raw[1:-1]
                         parsed_dict: Dict[str, str] = {}
                         for pair in dict_content.split(","):
@@ -490,7 +446,6 @@ class RustAnalyzer(BaseAnalyzer):
                     result[current_section][key] = value
 
                 except ValueError:
-                    # Skip malformed lines
                     continue
 
         return result
@@ -502,7 +457,6 @@ class RustAnalyzer(BaseAnalyzer):
         try:
             cargo_data = self.simple_toml_parse(input_data.content)
 
-            # Extract dependencies
             sections = ["dependencies", "dev-dependencies", "build-dependencies"]
 
             for section in sections:
@@ -532,7 +486,6 @@ class RustAnalyzer(BaseAnalyzer):
                         )
 
         except Exception:
-            # If TOML parsing fails, return basic info
             pass
 
         return PluginOutput(
@@ -554,11 +507,8 @@ class RustAnalyzer(BaseAnalyzer):
             lock_data = self.simple_toml_parse(input_data.content)
 
             if "package" in lock_data:
-                # Cargo.lock has a different format - packages are in an array
-                # For simplicity, we'll just count them or extract basic info
                 package_section = lock_data["package"]
                 if isinstance(package_section, dict):
-                    # Simple case - treat as single package info
                     name = package_section.get("name", "unknown")
                     version = package_section.get("version")
 
@@ -573,7 +523,6 @@ class RustAnalyzer(BaseAnalyzer):
                     )
 
         except Exception:
-            # If TOML parsing fails, return basic info
             pass
 
         return PluginOutput(

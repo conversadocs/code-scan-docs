@@ -40,7 +40,8 @@ input_plugins:
   python:
     source:
       type: "builtin"
-      name: "code/python_analyzer"
+      plugin_type: "code"
+      name: "python_analyzer"
     file_patterns:
       extensions: [".py"]
       filenames: ["requirements.txt", "setup.py", "pyproject.toml", "Pipfile", "poetry.lock", "tox.ini", "pytest.ini"]
@@ -54,7 +55,8 @@ input_plugins:
   rust:
     source:
       type: "builtin"
-      name: "code/rust_analyzer"
+      plugin_type: "code"
+      name: "rust_analyzer"
     file_patterns:
       extensions: [".rs"]
       filenames: ["Cargo.toml", "Cargo.lock", ".rustfmt.toml", "rust-toolchain.toml"]
@@ -70,7 +72,8 @@ output_plugins:
   markdown_docs:
     source:
       type: "builtin"
-      name: "docs/markdown_docs"
+      plugin_type: "docs"
+      name: "markdown_docs"
     output_types: ["documentation"]
     formats: ["markdown"]
     enabled: true

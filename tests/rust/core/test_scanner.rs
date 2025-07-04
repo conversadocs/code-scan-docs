@@ -72,6 +72,7 @@ fn create_config_with_custom_patterns() -> Config {
         InputPluginConfig {
             source: PluginSource::Builtin {
                 name: "test".to_string(),
+                plugin_type: "code".to_string(),
             },
             file_patterns: FilePatterns {
                 extensions: vec![".test".to_string()],

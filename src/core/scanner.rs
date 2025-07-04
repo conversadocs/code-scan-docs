@@ -99,10 +99,10 @@ impl ProjectScanner {
 
         debug!("⚙️ Got input plugin config for: {plugin_name}");
 
-        // Resolve plugin path
+        // Resolve plugin path with the new plugin_type structure
         let plugin_path = match &plugin_config.source {
-            crate::utils::config::PluginSource::Builtin { name } => {
-                PathBuf::from(format!("plugins/input/{name}.py"))
+            crate::utils::config::PluginSource::Builtin { name, plugin_type } => {
+                PathBuf::from(format!("plugins/input/{plugin_type}/{name}.py"))
             }
             crate::utils::config::PluginSource::Local { path } => PathBuf::from(path),
             _ => {
