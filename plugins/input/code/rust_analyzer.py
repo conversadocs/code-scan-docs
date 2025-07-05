@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Rust code analyzer plugin for CSD.
-Analyzes Rust files including .rs files and Rust ecosystem files.
+Enhanced Rust code analyzer plugin for CSD.
+Now includes token counting support and improved analysis.
 """
 
 import re
@@ -19,6 +19,34 @@ from csd_plugin_sdk import (
 )
 
 
+def estimate_tokens(text: str) -> int:
+    """
+    Estimate the number of tokens in text.
+    Uses ~4 characters per token as a rough approximation.
+    """
+    if not text:
+        return 0
+    return max(1, len(text) // 4)
+
+
+def estimate_code_tokens(code: str) -> int:
+    """
+    More accurate token estimation for Rust code.
+    Splits by whitespace and common delimiters.
+    """
+    if not code:
+        return 0
+
+    # Split by whitespace and common delimiters
+    tokens = re.split(r'[\s\(\)\{\}\[\]<>,.;:"\'\`|\\\/\-+=*&%$#@!?~]+', code)
+    tokens = [t for t in tokens if t]
+
+    # Count delimiters as partial tokens
+    delimiters = re.findall(r'[\(\)\{\}\[\]<>,.;:"\'\`|\\\/\-+=*&%$#@!?~]', code)
+
+    return max(1, len(tokens) + len(delimiters) // 2)
+
+
 class RustAnalyzer(BaseAnalyzer):
     """Analyzer for Rust files and Rust ecosystem files."""
 
@@ -26,7 +54,7 @@ class RustAnalyzer(BaseAnalyzer):
         """Initialize the RustAnalyzer instance."""
         super().__init__()
         self.name = "rust"
-        self.version = "1.0.0"
+        self.version = "2.0.0"  # Bumped version for new features
         self.supported_extensions = [".rs"]
         self.supported_filenames = [
             "Cargo.toml",
@@ -90,6 +118,12 @@ class RustAnalyzer(BaseAnalyzer):
         exports = self._extract_exports(content, lines)
         relationships = self._extract_relationships(imports, input_data)
 
+        # Calculate token information
+        token_info = self._calculate_token_info(content, elements)
+
+        # Check for main entry point
+        has_main_fn = self._check_for_main_entry(content)
+
         return PluginOutput(
             file_path=input_data.file_path,
             file_hash="",
@@ -98,7 +132,71 @@ class RustAnalyzer(BaseAnalyzer):
             exports=exports,
             relationships=relationships,
             external_dependencies=[],
+            token_info=token_info,
+            metadata={
+                "has_main_fn": has_main_fn,
+                "is_lib_rs": input_data.relative_path.endswith("lib.rs"),
+                "is_main_rs": input_data.relative_path.endswith("main.rs"),
+            },
         )
+
+    def _calculate_token_info(
+        self, content: str, elements: List[CodeElement]
+    ) -> Dict[str, int]:
+        """Calculate token information for the file."""
+        total_tokens = estimate_code_tokens(content)
+
+        # Count documentation tokens from doc comments
+        doc_tokens = 0
+        for line in content.split("\n"):
+            stripped = line.strip()
+            if stripped.startswith("///") or stripped.startswith("//!"):
+                doc_tokens += estimate_tokens(stripped[3:])
+            elif stripped.startswith("/**") or stripped.startswith("/*!"):
+                # Block doc comments - basic handling
+                doc_tokens += estimate_tokens(stripped)
+
+        # Extract and count regular comment tokens
+        comment_tokens = 0
+        for line in content.split("\n"):
+            stripped = line.strip()
+            if (
+                stripped.startswith("//")
+                and not stripped.startswith("///")
+                and not stripped.startswith("//!")
+            ):
+                comment_tokens += estimate_tokens(stripped[2:])
+            elif (
+                "/*" in stripped
+                and not stripped.startswith("/**")
+                and not stripped.startswith("/*!")
+            ):
+                # Block comments - basic handling
+                comment_tokens += estimate_tokens(stripped)
+
+        # Code tokens are the remaining tokens
+        code_tokens = max(0, total_tokens - doc_tokens - comment_tokens)
+
+        return {
+            "total_tokens": total_tokens,
+            "code_tokens": code_tokens,
+            "documentation_tokens": doc_tokens,
+            "comment_tokens": comment_tokens,
+        }
+
+    def _check_for_main_entry(self, content: str) -> bool:
+        """Check if the file has a main function."""
+        # Look for main function patterns
+        main_patterns = [
+            r"^\s*fn\s+main\s*\(",
+            r"^\s*pub\s+fn\s+main\s*\(",
+        ]
+
+        for line in content.split("\n"):
+            for pattern in main_patterns:
+                if re.match(pattern, line):
+                    return True
+        return False
 
     def _extract_elements(self, content: str, lines: List[str]) -> List[CodeElement]:
         """Extract code elements (functions, structs, etc.) from Rust code."""
@@ -158,6 +256,16 @@ class RustAnalyzer(BaseAnalyzer):
                         is_public = "pub " in line
                         is_async = "async " in line and element_type == "function"
 
+                        # Extract documentation for this element
+                        doc_comment = self._extract_element_documentation(
+                            lines, line_num - 1
+                        )
+
+                        # Calculate tokens for this element
+                        element_lines = lines[line_num - 1 : end_line]
+                        element_content = "\n".join(element_lines)
+                        element_tokens = estimate_code_tokens(element_content)
+
                         elements.append(
                             CodeElement(
                                 element_type=element_type,
@@ -165,8 +273,10 @@ class RustAnalyzer(BaseAnalyzer):
                                 signature=line_stripped,
                                 line_start=line_num,
                                 line_end=end_line,
+                                summary=doc_comment,  # Now populated with doc comments
                                 complexity_score=complexity,
                                 calls=calls,
+                                tokens=element_tokens,
                                 metadata={
                                     "is_public": is_public,
                                     "is_async": (
@@ -175,12 +285,53 @@ class RustAnalyzer(BaseAnalyzer):
                                         else False
                                     ),
                                     "visibility": "pub" if is_public else "private",
+                                    "has_documentation": doc_comment is not None,
+                                    "doc_tokens": (
+                                        estimate_tokens(doc_comment)
+                                        if doc_comment
+                                        else 0
+                                    ),
                                 },
                             )
                         )
                         break
 
         return elements
+
+    def _extract_element_documentation(
+        self, lines: List[str], element_line: int
+    ) -> Optional[str]:
+        """Extract documentation comments for an element."""
+        doc_lines: List[str] = []
+
+        # Look backwards from the element line for doc comments
+        for i in range(element_line - 1, -1, -1):
+            line = lines[i].strip()
+
+            if line.startswith("///"):
+                # Regular doc comment
+                doc_lines.insert(0, line[3:].strip())
+            elif line.startswith("//!"):
+                # Module-level doc comment
+                doc_lines.insert(0, line[3:].strip())
+            elif line.startswith("/**") and line.endswith("*/"):
+                # Single-line block doc comment
+                content = line[3:-2].strip()
+                if content:
+                    doc_lines.insert(0, content)
+            elif line.startswith("#["):
+                # Attribute, continue looking
+                continue
+            elif not line or line.startswith("//"):
+                # Empty line or regular comment, continue
+                continue
+            else:
+                # Hit non-doc content, stop
+                break
+
+        if doc_lines:
+            return "\n".join(doc_lines)
+        return None
 
     def _find_element_end(
         self, lines: List[str], start_line: int, start_line_content: str
@@ -453,6 +604,7 @@ class RustAnalyzer(BaseAnalyzer):
     def _analyze_cargo_toml(self, input_data: PluginInput) -> PluginOutput:
         """Analyze a Cargo.toml file."""
         dependencies = []
+        content_tokens = estimate_tokens(input_data.content)
 
         try:
             cargo_data = self.simple_toml_parse(input_data.content)
@@ -497,11 +649,30 @@ class RustAnalyzer(BaseAnalyzer):
             relationships=[],
             external_dependencies=dependencies,
             file_summary=f"Rust Cargo.toml with {len(dependencies)} dependencies",
+            token_info={
+                "total_tokens": content_tokens,
+                "code_tokens": content_tokens,
+                "documentation_tokens": 0,
+                "comment_tokens": 0,
+            },
+            metadata={
+                "package_name": (
+                    cargo_data.get("package", {}).get("name")
+                    if "cargo_data" in locals()
+                    else None
+                ),
+                "package_version": (
+                    cargo_data.get("package", {}).get("version")
+                    if "cargo_data" in locals()
+                    else None
+                ),
+            },
         )
 
     def _analyze_cargo_lock(self, input_data: PluginInput) -> PluginOutput:
         """Analyze a Cargo.lock file."""
         dependencies = []
+        content_tokens = estimate_tokens(input_data.content)
 
         try:
             lock_data = self.simple_toml_parse(input_data.content)
@@ -534,6 +705,15 @@ class RustAnalyzer(BaseAnalyzer):
             relationships=[],
             external_dependencies=dependencies,
             file_summary=f"Rust Cargo.lock with {len(dependencies)} locked",
+            token_info={
+                "total_tokens": content_tokens,
+                "code_tokens": content_tokens,
+                "documentation_tokens": 0,
+                "comment_tokens": 0,
+            },
+            metadata={
+                "is_lockfile": True,
+            },
         )
 
 
