@@ -9,7 +9,6 @@ use crate::plugins::manager::PluginManager;
 use crate::utils::config::Config;
 
 pub async fn handle_command(args: Args) -> Result<()> {
-    // Load configuration
     let config = load_config(&args).await?;
 
     match args.command {
@@ -56,21 +55,16 @@ async fn handle_init(
 
     let project_path = path.unwrap_or_else(|| PathBuf::from("."));
 
-    // Create and configure scanner
     let scanner = ProjectScanner::new(config.clone()).with_root(&project_path);
 
-    // Perform the scan and build matrix
     let mut matrix = scanner.scan_to_matrix().await?;
 
-    // Print matrix summary
     matrix.print_summary();
 
-    // Save the matrix to cache (this is the primary deliverable)
     let matrix_path = project_path.join(".csd_cache").join("matrix.json");
     matrix.save(&matrix_path).await?;
     info!("Matrix saved to: {}", matrix_path.display());
 
-    // Optional: export matrix to additional formats if requested
     if let Some(output_path) = output_file {
         match output {
             crate::cli::args::OutputFormat::Json => {
@@ -84,7 +78,6 @@ async fn handle_init(
                 info!("Matrix also exported as YAML to: {}", output_path.display());
             }
             crate::cli::args::OutputFormat::Pretty => {
-                // For pretty format with output file, save the summary
                 let summary = format!("=== Project Matrix Summary ===\nProject: {}\nFiles: {}\nRelationships: {}\nExternal dependencies: {}\nLanguages: {}\n",
                     matrix.metadata.project_root.display(),
                     matrix.metadata.total_files,
@@ -119,7 +112,6 @@ async fn handle_quality(
         ));
     }
 
-    // Find quality analysis output plugins
     let quality_plugins = config.find_output_plugins_for_type("quality_report", "json");
 
     if quality_plugins.is_empty() {
@@ -162,14 +154,12 @@ async fn handle_docs(
         ));
     }
 
-    // Convert DocFormat to string
     let format_str = match format {
         crate::cli::args::DocFormat::Markdown => "markdown",
         crate::cli::args::DocFormat::Html => "html",
         crate::cli::args::DocFormat::Pdf => "pdf",
     };
 
-    // Find documentation output plugins that support the requested format
     let doc_plugins = config.find_output_plugins_for_type("documentation", format_str);
 
     if doc_plugins.is_empty() {
@@ -187,17 +177,13 @@ async fn handle_docs(
 
     info!("Generating documentation using plugins: {doc_plugins:?}");
 
-    // Use the first available plugin for now
     let plugin_name = &doc_plugins[0];
     let plugin_config = config.get_output_plugin(plugin_name).unwrap();
 
-    // Create the output directory
     tokio::fs::create_dir_all(&output_directory).await?;
 
-    // Set up plugin communication
     use crate::plugins::communication::OutputPluginCommunicator;
 
-    // Resolve plugin path with the new plugin_type structure
     let plugin_path = match &plugin_config.source {
         crate::utils::config::PluginSource::Builtin { name, plugin_type } => {
             PathBuf::from(format!("plugins/output/{plugin_type}/{name}.py"))
@@ -218,7 +204,6 @@ async fn handle_docs(
         ));
     }
 
-    // Create plugin input
     let plugin_input = OutputPluginInput {
         matrix_path: matrix_path.clone(),
         project_root: std::env::current_dir()?,
@@ -234,7 +219,6 @@ async fn handle_docs(
         }),
     };
 
-    // Create and configure communicator
     let mut communicator =
         OutputPluginCommunicator::new(plugin_path).with_cache_dir(PathBuf::from(".csd_cache"));
 
@@ -244,7 +228,6 @@ async fn handle_docs(
         communicator = communicator.with_python_auto_detect();
     }
 
-    // Generate documentation
     match communicator.generate(plugin_input).await {
         Ok(result) => {
             info!("Documentation generated successfully!");
@@ -346,7 +329,6 @@ async fn handle_plugins(detailed: bool, config: &Config) -> Result<()> {
         }
     }
 
-    // Show configuration summary
     let summary = config.get_plugin_summary();
     println!("\n📊 Plugin Summary:");
     println!(

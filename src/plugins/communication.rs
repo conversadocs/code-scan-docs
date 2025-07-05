@@ -14,7 +14,6 @@ use crate::plugins::interface::{
     PluginInput, PluginInterface, PluginMessage, PluginResponse, PluginType,
 };
 
-/// Base plugin communicator with common functionality
 pub struct PluginCommunicator {
     plugin_path: PathBuf,
     python_executable: String,
@@ -60,7 +59,6 @@ impl PluginCommunicator {
         self
     }
 
-    /// Ensure cache directory exists
     async fn ensure_cache_dir(&self) -> Result<()> {
         if !self.cache_dir.exists() {
             fs::create_dir_all(&self.cache_dir)
@@ -71,7 +69,6 @@ impl PluginCommunicator {
         Ok(())
     }
 
-    /// Send a message to the plugin with progress indication
     pub async fn send_message(&self, message: PluginMessage) -> Result<PluginResponse> {
         debug!("Sending message to plugin: {}", self.plugin_path.display());
 
@@ -89,10 +86,9 @@ impl PluginCommunicator {
 
         debug!("Wrote plugin input to: {}", input_file_path.display());
 
-        // Determine appropriate timeout and progress message based on message type
         let (global_timeout_secs, progress_interval_secs, operation_name) = match &message {
             PluginMessage::Analyze { .. } => (300, 30, "Analyzing code"),
-            PluginMessage::Generate { .. } => (600, 30, "Generating documentation"), // LLM operations take longer
+            PluginMessage::Generate { .. } => (600, 30, "Generating documentation"),
             PluginMessage::CanAnalyze { .. } => (30, 10, "Checking file compatibility"),
             PluginMessage::CanGenerate { .. } => (30, 10, "Checking generation capability"),
             PluginMessage::GetInfo => (30, 10, "Getting plugin info"),
@@ -116,7 +112,6 @@ impl PluginCommunicator {
             )
             .await;
 
-        // Clean up input file
         let _ = fs::remove_file(&input_file_path).await;
 
         let output = match result {
@@ -167,7 +162,6 @@ impl PluginCommunicator {
         Ok(response)
     }
 
-    /// Run plugin process with progress indication
     async fn run_with_progress_indicator(
         &self,
         input_file_path: PathBuf,
@@ -175,7 +169,6 @@ impl PluginCommunicator {
         progress_interval: Duration,
         operation_name: &str,
     ) -> Result<std::process::Output> {
-        // Start the plugin process
         let process_future = async {
             let input_file =
                 std::fs::File::open(&input_file_path).context("Failed to open input file")?;
@@ -198,7 +191,6 @@ impl PluginCommunicator {
                 .context("Failed to wait for plugin process")
         };
 
-        // Progress indicator task
         let progress_future = async {
             let mut interval_timer = interval(progress_interval);
             let mut elapsed_secs = 0;
@@ -207,7 +199,6 @@ impl PluginCommunicator {
                 interval_timer.tick().await;
                 elapsed_secs += progress_interval.as_secs();
 
-                // Show progress with different messages to keep it interesting
                 let progress_msg = match elapsed_secs {
                     30 => format!(
                         "⏳ {operation_name} is taking longer than expected, still working..."
@@ -227,7 +218,6 @@ impl PluginCommunicator {
             }
         };
 
-        // Race the process against the global timeout, with progress updates
         match timeout(global_timeout, async {
             tokio::select! {
                 result = process_future => result,
@@ -250,7 +240,6 @@ impl PluginCommunicator {
         }
     }
 
-    /// Get plugin information with type identification
     pub async fn get_info(&self) -> Result<PluginInfo> {
         let message = PluginMessage::GetInfo;
 
@@ -283,7 +272,6 @@ impl PluginCommunicator {
         }
     }
 
-    /// Clean up old cache files
     pub async fn cleanup_cache(&self, max_age_hours: u64) -> Result<()> {
         use std::time::{Duration, SystemTime};
 
@@ -326,7 +314,6 @@ impl PluginInterface for PluginCommunicator {
     }
 }
 
-/// Specialized communicator for input plugins (code analyzers)
 pub struct InputPluginCommunicator {
     base: PluginCommunicator,
 }
@@ -429,7 +416,6 @@ impl InputPluginInterface for InputPluginCommunicator {
     }
 }
 
-/// Specialized communicator for output plugins (documentation generators, etc.)
 pub struct OutputPluginCommunicator {
     base: PluginCommunicator,
 }
@@ -522,29 +508,5 @@ impl OutputPluginInterface for OutputPluginCommunicator {
     async fn get_supported_formats(&self) -> Result<Vec<String>> {
         let info = self.base.get_info().await?;
         Ok(info.supported_formats.unwrap_or_default())
-    }
-}
-
-// Legacy compatibility - maintain the original PluginCommunicator for existing code
-impl PluginCommunicator {
-    /// Legacy method for backward compatibility
-    pub async fn can_analyze(&self, file_path: &Path, content_preview: &str) -> Result<bool> {
-        let input_comm = InputPluginCommunicator::new(self.plugin_path.clone())
-            .with_cache_dir(self.cache_dir.clone())
-            .with_python_executable(self.python_executable.clone());
-
-        input_comm.can_analyze(file_path, content_preview).await
-    }
-
-    /// Legacy method for backward compatibility
-    pub async fn analyze(
-        &self,
-        input: PluginInput,
-    ) -> Result<crate::plugins::interface::PluginOutput> {
-        let input_comm = InputPluginCommunicator::new(self.plugin_path.clone())
-            .with_cache_dir(self.cache_dir.clone())
-            .with_python_executable(self.python_executable.clone());
-
-        input_comm.analyze(input).await
     }
 }

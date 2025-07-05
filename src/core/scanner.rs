@@ -1,4 +1,3 @@
-// src/core/scanner.rs - Enhanced scanner with token counting
 use crate::core::matrix::{estimate_code_tokens, estimate_tokens, ProjectMatrix, TokenInfo};
 use crate::plugins::interface::{InputPluginInterface, PluginInput};
 use crate::utils::config::Config;
@@ -48,7 +47,6 @@ impl ProjectScanner {
 
         debug!("Found {} files, analyzing with plugins...", files.len());
 
-        // Convert files to matrix nodes with plugin analysis
         for file_info in files {
             debug!(
                 "🔍 Processing file: {} (is_text: {}, plugin: {:?})",
@@ -59,7 +57,6 @@ impl ProjectScanner {
 
             let file_node = if file_info.is_text && file_info.plugin_name.is_some() {
                 debug!("✅ Calling plugin for: {}", file_info.path.display());
-                // Analyze with plugin
                 self.analyze_file_with_plugin(&file_info, &mut matrix)
                     .await?
             } else {
@@ -69,14 +66,12 @@ impl ProjectScanner {
                     file_info.is_text,
                     file_info.plugin_name
                 );
-                // Create basic file node without plugin analysis
                 self.create_basic_file_node(&file_info).await?
             };
 
             matrix.add_file(file_node);
         }
 
-        // Finalize the matrix to detect entrypoints and calculate summaries
         matrix.finalize();
 
         debug!("Matrix created with {} files", matrix.files.len());
@@ -95,7 +90,6 @@ impl ProjectScanner {
         let plugin_name = file_info.plugin_name.as_ref().unwrap();
         debug!("📝 Plugin name: {plugin_name}");
 
-        // Get input plugin configuration from new structure
         let plugin_config = self
             .config
             .get_input_plugin(plugin_name)
@@ -103,7 +97,6 @@ impl ProjectScanner {
 
         debug!("⚙️ Got input plugin config for: {plugin_name}");
 
-        // Resolve plugin path with the new plugin_type structure
         let plugin_path = match &plugin_config.source {
             crate::utils::config::PluginSource::Builtin { name, plugin_type } => {
                 PathBuf::from(format!("plugins/input/{plugin_type}/{name}.py"))
@@ -117,7 +110,6 @@ impl ProjectScanner {
 
         debug!("📂 Plugin path resolved to: {}", plugin_path.display());
 
-        // Check if plugin file exists
         if !plugin_path.exists() {
             warn!("Plugin file not found: {}", plugin_path.display());
             return self.create_basic_file_node(file_info).await;
@@ -125,7 +117,6 @@ impl ProjectScanner {
 
         debug!("✅ Plugin file exists");
 
-        // Read file content
         debug!("📖 Reading file content...");
         let content = match tokio::fs::read_to_string(&file_info.path).await {
             Ok(content) => {
@@ -138,28 +129,24 @@ impl ProjectScanner {
             }
         };
 
-        // Set up cache directory
         let cache_dir = self.project_root.join(".csd_cache");
 
         debug!("🔧 Creating plugin input...");
-        // Create plugin input
         let plugin_input = PluginInput {
             file_path: file_info.path.clone(),
             relative_path: file_info.relative_path.clone(),
             content,
             project_root: self.project_root.clone(),
             cache_dir: cache_dir.to_string_lossy().to_string(),
-            plugin_config: plugin_config.config.as_ref().map(|v| {
-                // Convert serde_yaml::Value to serde_json::Value
-                serde_json::to_value(v).unwrap_or(serde_json::Value::Null)
-            }),
+            plugin_config: plugin_config
+                .config
+                .as_ref()
+                .map(|v| serde_json::to_value(v).unwrap_or(serde_json::Value::Null)),
         };
 
         debug!("📡 Creating plugin communicator...");
-        // Communicate with plugin using the new InputPluginCommunicator
         let mut communicator = InputPluginCommunicator::new(plugin_path).with_cache_dir(cache_dir);
 
-        // Use configured Python executable or auto-detect
         if let Some(ref python_exe) = self.config.python_executable {
             communicator = communicator.with_python_executable(python_exe.clone());
         } else {
@@ -175,7 +162,6 @@ impl ProjectScanner {
                     plugin_output.elements.len()
                 );
 
-                // Convert plugin output to matrix data
                 self.convert_plugin_output_to_file_node(file_info, plugin_output, matrix)
                     .await
             }
@@ -198,12 +184,10 @@ impl ProjectScanner {
     ) -> Result<crate::core::matrix::FileNode> {
         use crate::core::matrix::{ExternalDependency, Relationship};
 
-        // Convert plugin CodeElements to matrix CodeElements
         let elements: Vec<crate::core::matrix::CodeElement> = plugin_output
             .elements
             .into_iter()
             .map(|e| {
-                // Get summary from metadata if not directly provided
                 let summary = e.summary.or_else(|| {
                     e.metadata
                         .get("docstring")
@@ -223,7 +207,7 @@ impl ProjectScanner {
                         "variable" => crate::core::matrix::ElementType::Variable,
                         "constant" => crate::core::matrix::ElementType::Constant,
                         "type" => crate::core::matrix::ElementType::Type,
-                        _ => crate::core::matrix::ElementType::Function, // Default fallback
+                        _ => crate::core::matrix::ElementType::Function,
                     },
                     name: e.name,
                     signature: e.signature,
@@ -238,7 +222,6 @@ impl ProjectScanner {
             })
             .collect();
 
-        // Convert plugin Imports to matrix Imports
         let imports: Vec<crate::core::matrix::Import> = plugin_output
             .imports
             .into_iter()
@@ -257,7 +240,6 @@ impl ProjectScanner {
             })
             .collect();
 
-        // Add relationships to the matrix
         for rel in plugin_output.relationships {
             let relationship = Relationship {
                 from_file: PathBuf::from(rel.from_file),
@@ -279,7 +261,6 @@ impl ProjectScanner {
             matrix.add_relationship(relationship);
         }
 
-        // Add external dependencies to the matrix
         for dep in plugin_output.external_dependencies {
             let dependency = ExternalDependency {
                 name: dep.name,
@@ -297,9 +278,7 @@ impl ProjectScanner {
             matrix.add_external_dependency(dependency);
         }
 
-        // Extract token info from plugin output
         let token_info = if let Some(token_info_value) = plugin_output.token_info {
-            // Handle the token_info from the plugin output
             if let Ok(token_map) =
                 serde_json::from_value::<std::collections::HashMap<String, u64>>(token_info_value)
             {
@@ -313,7 +292,6 @@ impl ProjectScanner {
                     comment_tokens: token_map.get("comment_tokens").copied().unwrap_or(0),
                 }
             } else {
-                // Fallback: estimate tokens from file size
                 let estimated_tokens =
                     estimate_tokens(&std::fs::read_to_string(&file_info.path).unwrap_or_default());
                 TokenInfo {
@@ -324,7 +302,6 @@ impl ProjectScanner {
                 }
             }
         } else {
-            // Fallback: estimate tokens from file size
             let estimated_tokens =
                 estimate_tokens(&std::fs::read_to_string(&file_info.path).unwrap_or_default());
             TokenInfo {
@@ -335,7 +312,6 @@ impl ProjectScanner {
             }
         };
 
-        // Create the file node
         Ok(crate::core::matrix::FileNode {
             path: file_info.path.clone(),
             relative_path: file_info.relative_path.clone(),
@@ -359,7 +335,6 @@ impl ProjectScanner {
         &self,
         file_info: &FileInfo,
     ) -> Result<crate::core::matrix::FileNode> {
-        // For non-analyzed files, estimate tokens from file content if it's text
         let token_info = if file_info.is_text {
             match tokio::fs::read_to_string(&file_info.path).await {
                 Ok(content) => {
@@ -413,7 +388,6 @@ impl ProjectScanner {
         let mut _total_files = 0;
         let mut skipped_files = 0;
 
-        // Use the `ignore` crate to respect .gitignore, .ignore files
         let walker = WalkBuilder::new(&self.project_root)
             .hidden(!self.config.scanning.include_hidden)
             .git_ignore(true)
@@ -431,21 +405,18 @@ impl ProjectScanner {
 
             _total_files += 1;
 
-            // Skip directories
             if entry.file_type().is_some_and(|ft| ft.is_dir()) {
                 continue;
             }
 
             let path = entry.path();
 
-            // Check if file matches our ignore patterns
             if self.should_ignore_file(path) {
                 debug!("Ignoring file: {}", path.display());
                 skipped_files += 1;
                 continue;
             }
 
-            // Check file size
             let metadata = match std::fs::metadata(path) {
                 Ok(metadata) => metadata,
                 Err(e) => {
@@ -468,13 +439,11 @@ impl ProjectScanner {
                 continue;
             }
 
-            // Create relative path
             let relative_path = match path.strip_prefix(&self.project_root) {
                 Ok(rel) => rel.to_path_buf(),
                 Err(_) => path.to_path_buf(),
             };
 
-            // Detect file info
             let extension = path
                 .extension()
                 .and_then(|ext| ext.to_str())
@@ -483,7 +452,6 @@ impl ProjectScanner {
             let is_text = self.is_text_file(path, &extension);
             let plugin_name = self.config.find_input_plugin_for_file(path);
 
-            // Calculate content hash
             let content_hash = self
                 .calculate_file_hash(path)
                 .unwrap_or_else(|_| "error".to_string());
@@ -523,21 +491,17 @@ impl ProjectScanner {
         let path_str = path.to_string_lossy();
 
         for pattern in &self.config.scanning.ignore_patterns {
-            // Simple glob-like matching
             if pattern.ends_with('/') {
-                // Directory pattern
                 let dir_pattern = &pattern[..pattern.len() - 1];
                 if path_str.contains(dir_pattern) {
                     return true;
                 }
             } else if pattern.starts_with("*.") {
-                // Extension pattern
-                let ext = &pattern[1..]; // Remove the *
+                let ext = &pattern[1..];
                 if path_str.ends_with(ext) {
                     return true;
                 }
             } else if path_str.contains(pattern) {
-                // Simple substring match
                 return true;
             }
         }
@@ -546,22 +510,31 @@ impl ProjectScanner {
     }
 
     fn is_text_file(&self, path: &Path, extension: &Option<String>) -> bool {
-        // Simple heuristic - if an input plugin claims it, it's probably text
         if self.config.find_input_plugin_for_file(path).is_some() {
             return true;
         }
 
-        // Check by extension for common text files not handled by plugins
         if let Some(ext) = extension {
-            match ext.as_str() {
-                // Documentation and config
-                ".md" | ".rst" | ".txt" | ".asciidoc" | ".adoc" | ".org" | ".tex" | ".ini"
-                | ".cfg" | ".conf" | ".properties" | ".env" | ".gitignore" | ".gitattributes"
-                | ".dockerignore" | ".editorconfig" => true,
-                _ => false,
-            }
+            matches!(
+                ext.as_str(),
+                ".md"
+                    | ".rst"
+                    | ".txt"
+                    | ".asciidoc"
+                    | ".adoc"
+                    | ".org"
+                    | ".tex"
+                    | ".ini"
+                    | ".cfg"
+                    | ".conf"
+                    | ".properties"
+                    | ".env"
+                    | ".gitignore"
+                    | ".gitattributes"
+                    | ".dockerignore"
+                    | ".editorconfig"
+            )
         } else {
-            // Check files without extensions by name
             let filename = path
                 .file_name()
                 .and_then(|name| name.to_str())
@@ -591,7 +564,6 @@ impl ProjectScanner {
         println!("Project root: {}", self.project_root.display());
         println!("Total files found: {}\n", files.len());
 
-        // Group by plugin
         let mut by_plugin: std::collections::HashMap<String, Vec<&FileInfo>> =
             std::collections::HashMap::new();
         let mut unknown_files = Vec::new();
@@ -607,7 +579,6 @@ impl ProjectScanner {
             }
         }
 
-        // Print by plugin
         let mut plugins: Vec<_> = by_plugin.keys().collect();
         plugins.sort();
 
@@ -626,7 +597,6 @@ impl ProjectScanner {
             println!();
         }
 
-        // Print unknown files
         if !unknown_files.is_empty() {
             println!("❓ UNKNOWN ({} files)", unknown_files.len());
             for file in unknown_files {
@@ -636,7 +606,6 @@ impl ProjectScanner {
             println!();
         }
 
-        // Summary
         let total_size_mb: f64 =
             files.iter().map(|f| f.size_bytes as f64).sum::<f64>() / (1024.0 * 1024.0);
 
@@ -648,7 +617,6 @@ impl ProjectScanner {
         );
         println!("   Total size: {total_size_mb:.2} MB");
 
-        // Show plugin configuration summary
         let plugin_summary = self.config.get_plugin_summary();
         println!("\n🔌 Plugin Configuration:");
         println!(
