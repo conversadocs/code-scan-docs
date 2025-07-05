@@ -1,3 +1,9 @@
+//! Plugin communication layer for interfacing with external analysis tools.
+//!
+//! This module provides the communication infrastructure for running plugins
+//! as separate processes, handling input/output serialization, progress tracking,
+//! and error handling for both input (analysis) and output (generation) plugins.
+
 use anyhow::{Context, Result};
 use log::{debug, error, info, warn};
 use serde_json;
@@ -14,6 +20,11 @@ use crate::plugins::interface::{
     PluginInput, PluginInterface, PluginMessage, PluginResponse, PluginType,
 };
 
+/// Core plugin communication handler for executing external plugins.
+///
+/// Manages the lifecycle of plugin processes, handles input/output serialization,
+/// provides progress tracking for long-running operations, and manages temporary
+/// cache files for data exchange.
 pub struct PluginCommunicator {
     plugin_path: PathBuf,
     python_executable: String,
@@ -21,6 +32,17 @@ pub struct PluginCommunicator {
 }
 
 impl PluginCommunicator {
+    /// Creates a new plugin communicator for the specified plugin.
+    ///
+    /// Initializes with default Python executable and cache directory settings.
+    ///
+    /// # Arguments
+    ///
+    /// * `plugin_path` - Path to the plugin executable or script
+    ///
+    /// # Returns
+    ///
+    /// A new `PluginCommunicator` instance ready for plugin interaction.
     pub fn new(plugin_path: PathBuf) -> Self {
         let cache_dir = PathBuf::from(".csd_cache");
 
@@ -31,16 +53,42 @@ impl PluginCommunicator {
         }
     }
 
+    /// Sets the cache directory for temporary plugin data exchange.
+    ///
+    /// # Arguments
+    ///
+    /// * `cache_dir` - Path to the directory for temporary files
+    ///
+    /// # Returns
+    ///
+    /// The communicator with the updated cache directory.
     pub fn with_cache_dir(mut self, cache_dir: PathBuf) -> Self {
         self.cache_dir = cache_dir;
         self
     }
 
+    /// Sets the Python executable to use for running plugins.
+    ///
+    /// # Arguments
+    ///
+    /// * `executable` - Name or path of the Python executable
+    ///
+    /// # Returns
+    ///
+    /// The communicator with the updated Python executable.
     pub fn with_python_executable(mut self, executable: String) -> Self {
         self.python_executable = executable;
         self
     }
 
+    /// Automatically detects the available Python executable.
+    ///
+    /// Tries common Python executable names ('python', 'python3') and uses
+    /// the first one that responds to --version.
+    ///
+    /// # Returns
+    ///
+    /// The communicator with the detected Python executable.
     pub fn with_python_auto_detect(mut self) -> Self {
         let candidates = ["python", "python3"];
 
@@ -59,6 +107,11 @@ impl PluginCommunicator {
         self
     }
 
+    /// Ensures the cache directory exists, creating it if necessary.
+    ///
+    /// # Returns
+    ///
+    /// Result indicating success or failure of directory creation.
     async fn ensure_cache_dir(&self) -> Result<()> {
         if !self.cache_dir.exists() {
             fs::create_dir_all(&self.cache_dir)
@@ -69,6 +122,19 @@ impl PluginCommunicator {
         Ok(())
     }
 
+    /// Sends a message to the plugin and waits for a response.
+    ///
+    /// Serializes the message to JSON, writes it to a temporary file, executes
+    /// the plugin process, and parses the response. Includes progress tracking
+    /// and timeout handling based on the message type.
+    ///
+    /// # Arguments
+    ///
+    /// * `message` - The message to send to the plugin
+    ///
+    /// # Returns
+    ///
+    /// The plugin's response or an error if communication fails.
     pub async fn send_message(&self, message: PluginMessage) -> Result<PluginResponse> {
         debug!("Sending message to plugin: {}", self.plugin_path.display());
 
@@ -162,6 +228,21 @@ impl PluginCommunicator {
         Ok(response)
     }
 
+    /// Runs a plugin process with progress indication and timeout handling.
+    ///
+    /// Executes the plugin as a subprocess while providing periodic progress
+    /// updates to the user. Handles timeouts gracefully with informative messages.
+    ///
+    /// # Arguments
+    ///
+    /// * `input_file_path` - Path to the input file for the plugin
+    /// * `global_timeout` - Maximum time to wait for plugin completion
+    /// * `progress_interval` - Interval between progress messages
+    /// * `operation_name` - Human-readable name for the operation
+    ///
+    /// # Returns
+    ///
+    /// The process output or an error if execution fails or times out.
     async fn run_with_progress_indicator(
         &self,
         input_file_path: PathBuf,
@@ -240,6 +321,11 @@ impl PluginCommunicator {
         }
     }
 
+    /// Retrieves metadata and capabilities information from the plugin.
+    ///
+    /// # Returns
+    ///
+    /// Plugin information including name, version, and supported features.
     pub async fn get_info(&self) -> Result<PluginInfo> {
         let message = PluginMessage::GetInfo;
 
@@ -272,6 +358,17 @@ impl PluginCommunicator {
         }
     }
 
+    /// Removes old cache files to prevent disk space accumulation.
+    ///
+    /// Deletes JSON cache files older than the specified age threshold.
+    ///
+    /// # Arguments
+    ///
+    /// * `max_age_hours` - Maximum age in hours for cache files to retain
+    ///
+    /// # Returns
+    ///
+    /// Result indicating success or failure of cleanup operation.
     pub async fn cleanup_cache(&self, max_age_hours: u64) -> Result<()> {
         use std::time::{Duration, SystemTime};
 
@@ -314,11 +411,24 @@ impl PluginInterface for PluginCommunicator {
     }
 }
 
+/// Specialized communicator for input (analysis) plugins.
+///
+/// Wraps the base communicator with input plugin-specific functionality
+/// for analyzing source code files and extracting structural information.
 pub struct InputPluginCommunicator {
     base: PluginCommunicator,
 }
 
 impl InputPluginCommunicator {
+    /// Creates a new input plugin communicator.
+    ///
+    /// # Arguments
+    ///
+    /// * `plugin_path` - Path to the input plugin executable
+    ///
+    /// # Returns
+    ///
+    /// A new input plugin communicator instance.
     pub fn new(plugin_path: PathBuf) -> Self {
         Self {
             base: PluginCommunicator::new(plugin_path),
@@ -416,11 +526,24 @@ impl InputPluginInterface for InputPluginCommunicator {
     }
 }
 
+/// Specialized communicator for output (generation) plugins.
+///
+/// Wraps the base communicator with output plugin-specific functionality
+/// for generating documentation, reports, and other output formats.
 pub struct OutputPluginCommunicator {
     base: PluginCommunicator,
 }
 
 impl OutputPluginCommunicator {
+    /// Creates a new output plugin communicator.
+    ///
+    /// # Arguments
+    ///
+    /// * `plugin_path` - Path to the output plugin executable
+    ///
+    /// # Returns
+    ///
+    /// A new output plugin communicator instance.
     pub fn new(plugin_path: PathBuf) -> Self {
         Self {
             base: PluginCommunicator::new(plugin_path),

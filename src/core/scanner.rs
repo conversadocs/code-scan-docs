@@ -1,3 +1,9 @@
+//! Project scanning and file analysis functionality.
+//!
+//! This module provides the core scanning engine that walks through project directories,
+//! identifies files, and coordinates with input plugins to analyze code and build
+//! the project matrix.
+
 use crate::core::matrix::{estimate_code_tokens, estimate_tokens, ProjectMatrix, TokenInfo};
 use crate::plugins::interface::{InputPluginInterface, PluginInput};
 use crate::utils::config::Config;
@@ -7,6 +13,10 @@ use log::{debug, info, warn};
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 
+/// Information about a discovered file during project scanning.
+///
+/// Contains metadata about a file including its path, size, content type,
+/// and which plugin should handle its analysis.
 #[derive(Debug, Clone)]
 pub struct FileInfo {
     pub path: PathBuf,
@@ -18,12 +28,27 @@ pub struct FileInfo {
     pub content_hash: String,
 }
 
+/// Main project scanner that coordinates file discovery and analysis.
+///
+/// Walks through project directories, identifies relevant files, and uses
+/// input plugins to analyze code structure and relationships.
 pub struct ProjectScanner {
     config: Config,
     project_root: PathBuf,
 }
 
 impl ProjectScanner {
+    /// Creates a new project scanner with the given configuration.
+    ///
+    /// The scanner will use the current directory as the project root by default.
+    ///
+    /// # Arguments
+    ///
+    /// * `config` - Configuration containing plugin settings and scanning options
+    ///
+    /// # Returns
+    ///
+    /// A new `ProjectScanner` instance ready for scanning.
     pub fn new(config: Config) -> Self {
         Self {
             config,
@@ -31,11 +56,29 @@ impl ProjectScanner {
         }
     }
 
+    /// Sets the project root directory for scanning.
+    ///
+    /// # Arguments
+    ///
+    /// * `root` - Path to the project root directory
+    ///
+    /// # Returns
+    ///
+    /// The scanner with the updated root path.
     pub fn with_root<P: AsRef<Path>>(mut self, root: P) -> Self {
         self.project_root = root.as_ref().to_path_buf();
         self
     }
 
+    /// Performs a complete project scan and builds the project matrix.
+    ///
+    /// Discovers all relevant files, analyzes them with appropriate plugins,
+    /// and constructs a comprehensive project matrix with relationships
+    /// and metadata.
+    ///
+    /// # Returns
+    ///
+    /// A complete project matrix or an error if scanning fails.
     pub async fn scan_to_matrix(&self) -> Result<ProjectMatrix> {
         debug!(
             "Starting file scan and matrix creation in: {}",
@@ -78,6 +121,19 @@ impl ProjectScanner {
         Ok(matrix)
     }
 
+    /// Analyzes a single file using its designated input plugin.
+    ///
+    /// Loads the file content, communicates with the appropriate plugin,
+    /// and converts the plugin output into matrix data structures.
+    ///
+    /// # Arguments
+    ///
+    /// * `file_info` - Information about the file to analyze
+    /// * `matrix` - Project matrix to add relationships and dependencies to
+    ///
+    /// # Returns
+    ///
+    /// A file node with analysis results or an error if analysis fails.
     async fn analyze_file_with_plugin(
         &self,
         file_info: &FileInfo,
@@ -176,6 +232,20 @@ impl ProjectScanner {
         }
     }
 
+    /// Converts plugin analysis output into matrix data structures.
+    ///
+    /// Transforms plugin-specific output formats into the standard matrix
+    /// format and adds relationships and dependencies to the project matrix.
+    ///
+    /// # Arguments
+    ///
+    /// * `file_info` - Original file information
+    /// * `plugin_output` - Analysis results from the input plugin
+    /// * `matrix` - Project matrix to update with relationships
+    ///
+    /// # Returns
+    ///
+    /// A file node containing the converted analysis results.
     async fn convert_plugin_output_to_file_node(
         &self,
         file_info: &FileInfo,
@@ -331,6 +401,18 @@ impl ProjectScanner {
         })
     }
 
+    /// Creates a basic file node without plugin analysis.
+    ///
+    /// Used for files that don't have associated plugins or when plugin
+    /// analysis fails. Provides basic metadata and token estimates.
+    ///
+    /// # Arguments
+    ///
+    /// * `file_info` - Information about the file
+    ///
+    /// # Returns
+    ///
+    /// A basic file node with minimal analysis data.
     async fn create_basic_file_node(
         &self,
         file_info: &FileInfo,
@@ -381,6 +463,14 @@ impl ProjectScanner {
         })
     }
 
+    /// Discovers all relevant files in the project directory.
+    ///
+    /// Walks through the project directory structure, applies filtering rules,
+    /// and identifies files that should be included in the analysis.
+    ///
+    /// # Returns
+    ///
+    /// A vector of file information for all discovered files.
     pub async fn scan(&self) -> Result<Vec<FileInfo>> {
         debug!("Starting file scan in: {}", self.project_root.display());
 
@@ -479,6 +569,17 @@ impl ProjectScanner {
         Ok(files)
     }
 
+    /// Calculates a SHA-256 hash of the file content.
+    ///
+    /// Used for change detection and caching purposes.
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - Path to the file to hash
+    ///
+    /// # Returns
+    ///
+    /// Hexadecimal string representation of the file hash.
     fn calculate_file_hash(&self, path: &Path) -> Result<String> {
         let content = std::fs::read(path)?;
         let mut hasher = Sha256::new();
@@ -487,6 +588,18 @@ impl ProjectScanner {
         Ok(format!("{hash:x}"))
     }
 
+    /// Determines if a file should be ignored based on configuration patterns.
+    ///
+    /// Checks the file path against configured ignore patterns including
+    /// directories, extensions, and partial path matches.
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - Path to check against ignore patterns
+    ///
+    /// # Returns
+    ///
+    /// `true` if the file should be ignored, `false` otherwise.
     fn should_ignore_file(&self, path: &Path) -> bool {
         let path_str = path.to_string_lossy();
 
@@ -509,6 +622,19 @@ impl ProjectScanner {
         false
     }
 
+    /// Determines if a file contains text content that should be analyzed.
+    ///
+    /// Checks file extensions and names against known text file patterns
+    /// and plugin associations.
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - Path to the file
+    /// * `extension` - File extension (if any)
+    ///
+    /// # Returns
+    ///
+    /// `true` if the file is identified as containing text content.
     fn is_text_file(&self, path: &Path, extension: &Option<String>) -> bool {
         if self.config.find_input_plugin_for_file(path).is_some() {
             return true;
@@ -559,6 +685,14 @@ impl ProjectScanner {
         }
     }
 
+    /// Prints a human-readable summary of the file scan results.
+    ///
+    /// Displays statistics about discovered files, plugin associations,
+    /// and overall project structure.
+    ///
+    /// # Arguments
+    ///
+    /// * `files` - Vector of discovered file information to summarize
     pub fn print_scan_results(&self, files: &[FileInfo]) {
         println!("\n=== CSD File Scan Results ===");
         println!("Project root: {}", self.project_root.display());

@@ -1,9 +1,30 @@
+//! Code Scan Docs application entry point.
+//!
+//! This binary provides command-line interface functionality for scanning and
+//! documenting code repositories.
+
 use clap::Parser;
 use log::{error, info};
 
 use csd::cli::args::Args;
 use csd::cli::commands;
 
+/// Application entry point.
+///
+/// Initializes logging, parses command-line arguments, and executes the appropriate
+/// command based on user input.
+///
+/// # Returns
+///
+/// Returns `Ok(())` on successful command execution, or an error if the command fails.
+/// On error, the process exits with code 1.
+///
+/// # Examples
+///
+/// The application is typically run from the command line:
+/// ```bash
+/// cargo run -- [COMMAND] [OPTIONS]
+/// ```
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     env_logger::Builder::from_default_env()

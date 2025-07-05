@@ -1,6 +1,15 @@
+//! Command-line argument parsing and configuration.
+//!
+//! This module defines the command-line interface structure using clap, including
+//! all available commands, options, and their associated data types.
+
 use clap::{Parser, Subcommand, ValueEnum};
 use std::path::PathBuf;
 
+/// Main command-line arguments structure.
+///
+/// Represents the top-level arguments and global options that can be passed
+/// to the application, along with the specific subcommand to execute.
 #[derive(Parser, Debug, Clone)]
 #[command(
     name = "csd",
@@ -22,6 +31,10 @@ pub struct Args {
     pub project: Option<PathBuf>,
 }
 
+/// Available subcommands for the application.
+///
+/// Each variant represents a different operation mode of the code analysis tool,
+/// with its own specific arguments and options.
 #[derive(Subcommand, Debug, Clone)]
 pub enum Command {
     Init {
@@ -71,6 +84,10 @@ pub enum Command {
     },
 }
 
+/// Output format options for generated content.
+///
+/// Specifies the format in which analysis results or documentation
+/// should be generated and saved.
 #[derive(ValueEnum, Clone, Debug)]
 pub enum OutputFormat {
     Json,
@@ -78,6 +95,10 @@ pub enum OutputFormat {
     Pretty,
 }
 
+/// Quality metrics that can be analyzed.
+///
+/// Defines the different types of code quality measurements that can be
+/// performed during analysis.
 #[derive(ValueEnum, Clone, Debug)]
 pub enum QualityMetric {
     Complexity,
@@ -88,6 +109,9 @@ pub enum QualityMetric {
     All,
 }
 
+/// Documentation format options.
+///
+/// Specifies the output format for generated documentation files.
 #[derive(ValueEnum, Clone, Debug)]
 pub enum DocFormat {
     Markdown,
