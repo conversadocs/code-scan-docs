@@ -44,9 +44,11 @@ def estimate_code_tokens(code: str) -> int:
     if not code:
         return 0
 
+    # Split by whitespace and common delimiters
     tokens = re.split(r'[\s\(\)\{\}\[\]<>,.;:"\'\`|\\\/\-+=*&%$#@!?~]+', code)
     tokens = [t for t in tokens if t]
 
+    # Count delimiters as partial tokens
     delimiters = re.findall(r'[\(\)\{\}\[\]<>,.;:"\'\`|\\\/\-+=*&%$#@!?~]', code)
 
     return max(1, len(tokens) + len(delimiters) // 2)
@@ -59,7 +61,7 @@ class PythonAnalyzer(BaseAnalyzer):
         """Initialize the PythonAnalyzer instance."""
         super().__init__()
         self.name = "python"
-        self.version = "2.0.0"
+        self.version = "2.0.0"  # Bumped version for new features
         self.supported_extensions = [".py"]
         self.supported_filenames = [
             "requirements.txt",
@@ -142,8 +144,10 @@ class PythonAnalyzer(BaseAnalyzer):
         exports = self._extract_exports(tree)
         relationships = self._extract_relationships(imports, input_data)
 
+        # Calculate token information
         token_info = self._calculate_token_info(input_data.content, elements)
 
+        # Check for main entry point
         has_main_check = self._check_for_main_entry(tree)
 
         return PluginOutput(
@@ -167,17 +171,20 @@ class PythonAnalyzer(BaseAnalyzer):
         """Calculate token information for the file."""
         total_tokens = estimate_code_tokens(content)
 
+        # Count documentation tokens from docstrings
         doc_tokens = 0
         for element in elements:
             if element.summary:
                 doc_tokens += estimate_tokens(element.summary)
 
+        # Extract and count comment tokens
         comment_tokens = 0
         for line in content.split("\n"):
             stripped = line.strip()
             if stripped.startswith("#") and not stripped.startswith("#!"):
                 comment_tokens += estimate_tokens(stripped[1:])
 
+        # Code tokens are the remaining tokens
         code_tokens = max(0, total_tokens - doc_tokens - comment_tokens)
 
         return {
@@ -191,6 +198,7 @@ class PythonAnalyzer(BaseAnalyzer):
         """Check if the file has a if __name__ == "__main__": block."""
         for node in ast.walk(tree):
             if isinstance(node, ast.If):
+                # Check for if __name__ == "__main__":
                 if (
                     isinstance(node.test, ast.Compare)
                     and isinstance(node.test.left, ast.Name)
@@ -226,6 +234,7 @@ class PythonAnalyzer(BaseAnalyzer):
         self, node: ast.AST, content: str
     ) -> Tuple[Optional[str], int]:
         """Extract docstring from a node and calculate its token count."""
+        # Only try to get docstring from supported node types
         if isinstance(
             node, (ast.AsyncFunctionDef, ast.FunctionDef, ast.ClassDef, ast.Module)
         ):
@@ -251,8 +260,10 @@ class PythonAnalyzer(BaseAnalyzer):
 
         decorators = [self._get_decorator_name(d) for d in node.decorator_list]
 
+        # Extract docstring as summary
         docstring, doc_tokens = self._extract_docstring_and_tokens(node, content)
 
+        # Calculate tokens for this element
         element_lines = content.split("\n")[
             node.lineno - 1 : (node.end_lineno or node.lineno)
         ]
@@ -265,7 +276,7 @@ class PythonAnalyzer(BaseAnalyzer):
             signature=signature,
             line_start=node.lineno,
             line_end=node.end_lineno or node.lineno,
-            summary=docstring,
+            summary=docstring,  # Now populated with docstring
             complexity_score=complexity,
             calls=calls,
             tokens=element_tokens,
@@ -291,8 +302,10 @@ class PythonAnalyzer(BaseAnalyzer):
         )
         decorators = [self._get_decorator_name(d) for d in node.decorator_list]
 
+        # Extract docstring as summary
         docstring, doc_tokens = self._extract_docstring_and_tokens(node, content)
 
+        # Calculate tokens for this element
         element_lines = content.split("\n")[
             node.lineno - 1 : (node.end_lineno or node.lineno)
         ]
@@ -305,7 +318,7 @@ class PythonAnalyzer(BaseAnalyzer):
             signature=signature,
             line_start=node.lineno,
             line_end=node.end_lineno or node.lineno,
-            summary=docstring,
+            summary=docstring,  # Now populated with docstring
             complexity_score=complexity,
             calls=calls,
             tokens=element_tokens,
@@ -332,8 +345,10 @@ class PythonAnalyzer(BaseAnalyzer):
 
         decorators = [self._get_decorator_name(d) for d in node.decorator_list]
 
+        # Extract docstring as summary
         docstring, doc_tokens = self._extract_docstring_and_tokens(node, content)
 
+        # Calculate tokens for this element
         element_lines = content.split("\n")[
             node.lineno - 1 : (node.end_lineno or node.lineno)
         ]
@@ -346,7 +361,7 @@ class PythonAnalyzer(BaseAnalyzer):
             signature=signature,
             line_start=node.lineno,
             line_end=node.end_lineno or node.lineno,
-            summary=docstring,
+            summary=docstring,  # Now populated with docstring
             calls=methods,
             tokens=element_tokens,
             metadata={
@@ -366,6 +381,7 @@ class PythonAnalyzer(BaseAnalyzer):
             if len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
                 var_name = node.targets[0].id
 
+                # Calculate tokens for this line
                 line_content = content.split("\n")[node.lineno - 1]
                 tokens = estimate_code_tokens(line_content)
 
@@ -381,6 +397,7 @@ class PythonAnalyzer(BaseAnalyzer):
         elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
             var_name = node.target.id
 
+            # Calculate tokens for this line
             line_content = content.split("\n")[node.lineno - 1]
             tokens = estimate_code_tokens(line_content)
 
