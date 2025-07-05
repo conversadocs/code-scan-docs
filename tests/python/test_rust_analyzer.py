@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
-Unit tests for the Rust analyzer plugin.
+Unit tests for the enhanced Rust analyzer plugin with token counting.
 
 These tests cover Rust code analysis including regex-based parsing,
 use statement detection, dependency extraction from Cargo files,
-and relationship mapping.
+relationship mapping, and token counting functionality.
 
 Run with: pytest tests/python/test_rust_analyzer.py -v
 """
@@ -22,7 +22,28 @@ from csd_plugin_sdk import (
 )
 
 # Import the Rust analyzer
-from rust_analyzer import RustAnalyzer
+from rust_analyzer import RustAnalyzer, estimate_tokens, estimate_code_tokens
+
+
+class TestTokenEstimation:
+    """Test token estimation functions."""
+
+    def test_estimate_tokens_basic(self):
+        """Test basic token estimation."""
+        assert estimate_tokens("") == 0
+        assert estimate_tokens("Hello, world!") == 3
+        assert estimate_tokens("a" * 100) == 25
+
+    def test_estimate_code_tokens(self):
+        """Test code-specific token estimation for Rust."""
+        code = "fn hello() { println!(); }"
+        tokens = estimate_code_tokens(code)
+        assert tokens > 0
+
+        # Code with more delimiters should have more tokens
+        complex_code = "arr[0] = func(x, y) + obj.method();"
+        simple_code = "let variable = value"
+        assert estimate_code_tokens(complex_code) > estimate_code_tokens(simple_code)
 
 
 class TestRustAnalyzerBasics:
@@ -35,7 +56,7 @@ class TestRustAnalyzerBasics:
     def test_analyzer_info(self):
         """Test analyzer basic information."""
         assert self.analyzer.name == "rust"
-        assert self.analyzer.version == "1.0.0"
+        assert self.analyzer.version == "2.0.0"  # Updated version
         assert ".rs" in self.analyzer.supported_extensions
         assert "Cargo.toml" in self.analyzer.supported_filenames
         assert "Cargo.lock" in self.analyzer.supported_filenames
@@ -120,7 +141,7 @@ class TestRustAnalyzerBasics:
 
 
 class TestRustCodeAnalysis:
-    """Test Rust code analysis and regex-based parsing."""
+    """Test Rust code analysis and regex-based parsing with token counting."""
 
     def setup_method(self):
         """Set up test fixtures."""
@@ -139,13 +160,16 @@ class TestRustCodeAnalysis:
             plugin_config=None,
         )
 
-    def test_analyze_simple_functions(self):
-        """Test analysis of simple Rust functions."""
+    def test_analyze_simple_functions_with_docs(self):
+        """Test analysis of simple Rust functions with documentation extraction."""
         code = """
-fn main() {
+/// A simple greeting function.
+/// Prints hello to the console.
+fn hello_world() {
     println!("Hello, World!");
 }
 
+/// Adds two numbers together.
 pub fn add_numbers(a: i32, b: i32) -> i32 {
     a + b
 }
@@ -164,36 +188,53 @@ async fn fetch_data() -> Result<String, Box<dyn std::error::Error>> {
 
         # Check function details
         function_names = [f.name for f in functions]
-        assert "main" in function_names
+        assert "hello_world" in function_names
         assert "add_numbers" in function_names
         assert "fetch_data" in function_names
+
+        # Check documentation extraction
+        hello_func = next(f for f in functions if f.name == "hello_world")
+        assert hello_func.metadata["has_documentation"] is True
+        assert (
+            hello_func.summary
+            == "A simple greeting function.\nPrints hello to the console."
+        )
+        assert hello_func.metadata["doc_tokens"] > 0
+        assert hello_func.tokens > 0  # Should have token count
 
         # Check visibility
         add_func = next(f for f in functions if f.name == "add_numbers")
         assert add_func.metadata["is_public"] is True
         assert add_func.metadata["visibility"] == "pub"
+        assert add_func.summary == "Adds two numbers together."
 
         fetch_func = next(f for f in functions if f.name == "fetch_data")
         assert fetch_func.metadata["is_async"] is True
+        assert fetch_func.metadata["has_documentation"] is False  # No doc comment
 
-        main_func = next(f for f in functions if f.name == "main")
-        assert main_func.metadata["is_public"] is False
-        assert main_func.metadata["visibility"] == "private"
+        # Check token info
+        assert result.token_info is not None
+        assert result.token_info["total_tokens"] > 0
+        assert result.token_info["code_tokens"] > 0
+        assert result.token_info["documentation_tokens"] > 0
 
-    def test_analyze_structs(self):
-        """Test analysis of Rust structs."""
+    def test_analyze_structs_with_docs(self):
+        """Test analysis of Rust structs with documentation."""
         code = """
+/// A point in 2D space.
 struct Point {
     x: f64,
     y: f64,
 }
 
+/// Represents a person with basic info.
 pub struct Person {
     name: String,
     age: u32,
 }
 
 #[derive(Debug, Clone)]
+/// Configuration struct with debug settings.
 pub struct Config {
     debug: bool,
     max_connections: usize,
@@ -211,16 +252,25 @@ pub struct Config {
         assert "Person" in struct_names
         assert "Config" in struct_names
 
+        # Check documentation
+        point_struct = next(s for s in structs if s.name == "Point")
+        assert point_struct.summary == "A point in 2D space."
+        assert point_struct.metadata["has_documentation"] is True
+        assert point_struct.tokens > 0
+
         # Check visibility
         person_struct = next(s for s in structs if s.name == "Person")
         assert person_struct.metadata["is_public"] is True
+        assert person_struct.summary == "Represents a person with basic info."
 
-        point_struct = next(s for s in structs if s.name == "Point")
-        assert point_struct.metadata["is_public"] is False
+        config_struct = next(s for s in structs if s.name == "Config")
+        assert config_struct.metadata["is_public"] is True
+        assert config_struct.summary == "Configuration struct with debug settings."
 
-    def test_analyze_enums(self):
-        """Test analysis of Rust enums."""
+    def test_analyze_enums_with_docs(self):
+        """Test analysis of Rust enums with documentation."""
         code = """
+/// Cardinal directions for navigation.
 enum Direction {
     North,
     South,
@@ -228,12 +278,14 @@ enum Direction {
     West,
 }
 
+/// Generic result type for operations.
 pub enum Result<T, E> {
     Ok(T),
     Err(E),
 }
 
 #[derive(Debug)]
+/// HTTP status codes.
 enum HttpStatus {
     Ok = 200,
     NotFound = 404,
@@ -252,22 +304,31 @@ enum HttpStatus {
         assert "Result" in enum_names
         assert "HttpStatus" in enum_names
 
+        # Check documentation
+        direction_enum = next(e for e in enums if e.name == "Direction")
+        assert direction_enum.summary == "Cardinal directions for navigation."
+        assert direction_enum.metadata["has_documentation"] is True
+
         # Check visibility
         result_enum = next(e for e in enums if e.name == "Result")
         assert result_enum.metadata["is_public"] is True
+        assert result_enum.summary == "Generic result type for operations."
 
-    def test_analyze_traits(self):
-        """Test analysis of Rust traits."""
+    def test_analyze_traits_with_docs(self):
+        """Test analysis of Rust traits with documentation."""
         code = """
+/// Trait for displaying values.
 trait Display {
     fn fmt(&self) -> String;
 }
 
+/// Iterator trait for traversing collections.
 pub trait Iterator {
     type Item;
     fn next(&mut self) -> Option<Self::Item>;
 }
 
+/// Cloning capability trait.
 trait Clone {
     fn clone(&self) -> Self;
 }
@@ -284,19 +345,89 @@ trait Clone {
         assert "Iterator" in trait_names
         assert "Clone" in trait_names
 
+        # Check documentation
+        display_trait = next(t for t in traits if t.name == "Display")
+        assert display_trait.summary == "Trait for displaying values."
+        assert display_trait.metadata["has_documentation"] is True
+
         # Check visibility
         iterator_trait = next(t for t in traits if t.name == "Iterator")
         assert iterator_trait.metadata["is_public"] is True
+        assert iterator_trait.summary == "Iterator trait for traversing collections."
+
+    def test_token_info_calculation(self):
+        """Test that token_info is properly calculated."""
+        code = """// Regular comment here
+/// Documentation comment for the module.
+//! Module-level documentation.
+
+/// Main function with documentation.
+fn main() {
+    println!("Hello, world!");  // Inline comment
+}
+"""
+
+        input_data = self.create_plugin_input(code)
+        result = self.analyzer._analyze_rust_code(input_data)
+
+        # Check token_info exists
+        assert result.token_info is not None
+        assert result.token_info["total_tokens"] > 0
+        assert result.token_info["code_tokens"] > 0
+        assert result.token_info["documentation_tokens"] > 0
+        assert result.token_info["comment_tokens"] > 0
+
+    def test_main_entry_detection(self):
+        """Test detection of main function."""
+        code = """
+/// Main entry point of the application.
+fn main() {
+    println!("Hello");
+}
+
+fn helper() {
+    // Not main
+}
+"""
+
+        input_data = self.create_plugin_input(code, "main.rs")
+        result = self.analyzer._analyze_rust_code(input_data)
+
+        # Check metadata for main check
+        assert result.metadata is not None
+        assert result.metadata.get("has_main_fn") is True
+        assert result.metadata.get("is_main_rs") is True
+
+    def test_lib_rs_detection(self):
+        """Test detection of lib.rs files."""
+        code = """
+//! This is a library crate.
+
+/// Public function for the library.
+pub fn library_function() -> i32 {
+    42
+}
+"""
+
+        input_data = self.create_plugin_input(code, "lib.rs")
+        result = self.analyzer._analyze_rust_code(input_data)
+
+        # Check metadata for lib.rs
+        assert result.metadata is not None
+        assert result.metadata.get("is_lib_rs") is True
+        assert result.metadata.get("has_main_fn") is False
 
     def test_analyze_impl_blocks(self):
         """Test analysis of Rust impl blocks."""
         code = """
+/// Implementation for Point.
 impl Point {
     fn new(x: f64, y: f64) -> Point {
         Point { x, y }
     }
 }
 
+/// Display implementation for Vec.
 impl<T> Display for Vec<T> {
     fn fmt(&self) -> String {
         format!("Vec with {} items", self.len())
@@ -326,26 +457,21 @@ impl Default for Config {
         # Let's be more flexible about what we expect
         assert "Point" in impl_names  # Should find impl Point
 
-        # For trait impls, the regex might extract the trait name or type name
-        # Let's check that we found some names related to our impl blocks
-        assert (
-            len(
-                [
-                    name
-                    for name in impl_names
-                    if name in ["Display", "Default", "Config", "Vec"]
-                ]
-            )
-            >= 2
-        )
+        # Check documentation
+        point_impl = next((i for i in impls if i.name == "Point"), None)
+        if point_impl:
+            assert point_impl.summary == "Implementation for Point."
+            assert point_impl.tokens > 0
 
-    def test_analyze_modules(self):
-        """Test analysis of Rust modules."""
+    def test_analyze_modules_with_docs(self):
+        """Test analysis of Rust modules with documentation."""
         code = """
+/// Utility functions module.
 mod utils {
     pub fn helper() {}
 }
 
+/// Configuration management module.
 pub mod config {
     use std::collections::HashMap;
 
@@ -354,6 +480,7 @@ pub mod config {
     }
 }
 
+/// Test module for unit tests.
 mod tests {
     #[test]
     fn test_something() {
@@ -373,17 +500,26 @@ mod tests {
         assert "config" in module_names
         assert "tests" in module_names
 
+        # Check documentation
+        utils_mod = next(m for m in modules if m.name == "utils")
+        assert utils_mod.summary == "Utility functions module."
+        assert utils_mod.metadata["has_documentation"] is True
+
         # Check visibility
         config_mod = next(m for m in modules if m.name == "config")
         assert config_mod.metadata["is_public"] is True
+        assert config_mod.summary == "Configuration management module."
 
-    def test_analyze_type_aliases(self):
-        """Test analysis of Rust type aliases."""
+    def test_analyze_type_aliases_with_docs(self):
+        """Test analysis of Rust type aliases with documentation."""
         code = """
+/// Custom result type for our crate.
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
+/// Unique identifier for users.
 pub type UserId = u64;
 
+/// Event handler function type.
 type EventHandler = fn(&Event) -> bool;
 """
         input_data = self.create_plugin_input(code)
@@ -398,15 +534,23 @@ type EventHandler = fn(&Event) -> bool;
         assert "UserId" in type_names
         assert "EventHandler" in type_names
 
+        # Check documentation
+        result_type = next(t for t in types if t.name == "Result")
+        assert result_type.summary == "Custom result type for our crate."
+        assert result_type.metadata["has_documentation"] is True
+
         # Check visibility
         user_id_type = next(t for t in types if t.name == "UserId")
         assert user_id_type.metadata["is_public"] is True
+        assert user_id_type.summary == "Unique identifier for users."
 
-    def test_analyze_constants(self):
-        """Test analysis of Rust constants."""
+    def test_analyze_constants_with_docs(self):
+        """Test analysis of Rust constants with documentation."""
         code = """
+/// Mathematical constant pi.
 const PI: f64 = 3.14159265359;
 
+/// Maximum allowed connections.
 pub const MAX_CONNECTIONS: usize = 1000;
 
 const fn calculate_size() -> usize {
@@ -423,6 +567,12 @@ const fn calculate_size() -> usize {
         if constants:
             const_names = [c.name for c in constants]
             assert "PI" in const_names or "MAX_CONNECTIONS" in const_names
+
+            # Check documentation for PI constant
+            pi_const = next((c for c in constants if c.name == "PI"), None)
+            if pi_const:
+                assert pi_const.summary == "Mathematical constant pi."
+                assert pi_const.tokens > 0
 
     def test_analyze_function_calls(self):
         """Test extraction of function calls in Rust code."""
@@ -494,22 +644,27 @@ extern crate regex;
     def test_analyze_exports(self):
         """Test export detection for Rust code."""
         code = """
+/// Public function for external use.
 pub fn public_function() {}
 
 fn private_function() {}
 
+/// Public struct for the API.
 pub struct PublicStruct {}
 
 struct PrivateStruct {}
 
+/// Public enum for status codes.
 pub enum PublicEnum {}
 
 enum PrivateEnum {}
 
+/// Public constant value.
 pub const PUBLIC_CONST: i32 = 42;
 
 const PRIVATE_CONST: i32 = 24;
 
+/// Public module for utilities.
 pub mod public_module {}
 
 mod private_module {}
@@ -552,8 +707,8 @@ class TestRustEcosystemFiles:
             plugin_config=None,
         )
 
-    def test_analyze_cargo_toml(self):
-        """Test analysis of Cargo.toml files."""
+    def test_analyze_cargo_toml_with_tokens(self):
+        """Test analysis of Cargo.toml files with token counting."""
         content = """
 [package]
 name = "myproject"
@@ -603,8 +758,20 @@ cc = "1.0"
             assert tokio_dep.version == "1.0"
             assert tokio_dep.ecosystem == "cargo"
 
-    def test_analyze_cargo_lock(self):
-        """Test analysis of Cargo.lock files."""
+        # Check token info
+        assert result.token_info is not None
+        assert result.token_info["total_tokens"] > 0
+        assert result.token_info["code_tokens"] == result.token_info["total_tokens"]
+        assert result.token_info["documentation_tokens"] == 0
+        assert result.token_info["comment_tokens"] == 0
+
+        # Check metadata
+        assert result.metadata is not None
+        assert result.metadata.get("package_name") == "myproject"
+        assert result.metadata.get("package_version") == "0.1.0"
+
+    def test_analyze_cargo_lock_with_tokens(self):
+        """Test analysis of Cargo.lock files with token counting."""
         content = """
 # This file is automatically @generated by Cargo.
 # It is not intended for manual editing.
@@ -615,12 +782,6 @@ name = "autocfg"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d468802bab17cbc0cc575e9b053f41e72aa36bfa6b7f55e3529ffa43161b97fa"
-
-[[package]]
-name = "bitflags"
-version = "1.3.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bef38d45163c2f1dde094a7dfd33ccf595c92905c8f8f4fdc18d06fb1037718a"
 
 [[package]]
 name = "myproject"
@@ -634,9 +795,16 @@ dependencies = [
         result = self.analyzer._analyze_cargo_lock(input_data)
 
         # Cargo.lock analysis might be basic in current implementation
-        # Just verify it doesn't crash and returns valid output
         assert isinstance(result, PluginOutput)
         assert result.file_path == "/project/Cargo.lock"
+
+        # Should have token info
+        assert result.token_info is not None
+        assert result.token_info["total_tokens"] > 0
+
+        # Should have metadata
+        assert result.metadata is not None
+        assert result.metadata.get("is_lockfile") is True
 
         # May or may not find dependencies depending on implementation
         dependencies = result.external_dependencies
@@ -741,17 +909,20 @@ class TestRustAnalyzerIntegration:
         """Set up test fixtures."""
         self.analyzer = RustAnalyzer()
 
-    def test_full_analysis_workflow(self):
-        """Test the complete analysis workflow for a Rust file."""
+    def test_full_analysis_workflow_with_tokens(self):
+        """Test the complete analysis workflow for a Rust file with token counting."""
         code = """
 //! A sample Rust module for testing the analyzer.
+//! This module includes various Rust constructs.
 
 use std::collections::HashMap;
 use std::fs::File;
 use serde::{Serialize, Deserialize};
 
+/// Version constant for the module.
 const VERSION: &str = "1.0.0";
 
+/// User data structure with serialization support.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct User {
     pub id: u64,
@@ -760,15 +931,18 @@ pub struct User {
 }
 
 impl User {
+    /// Creates a new user instance.
     pub fn new(id: u64, name: String, email: String) -> Self {
         Self { id, name, email }
     }
 
+    /// Returns a formatted display name for the user.
     pub fn get_display_name(&self) -> String {
         format!("{} ({})", self.name, self.email)
     }
 }
 
+/// Database error types.
 #[derive(Debug)]
 pub enum DatabaseError {
     ConnectionFailed,
@@ -776,13 +950,22 @@ pub enum DatabaseError {
     NotFound,
 }
 
+/// Generic repository trait for data access.
 pub trait Repository<T> {
     fn save(&mut self, item: &T) -> Result<(), DatabaseError>;
     fn find_by_id(&self, id: u64) -> Result<T, DatabaseError>;
 }
 
+/// Processes a collection of users into a hashmap.
 pub fn process_users(users: Vec<User>) -> HashMap<u64, User> {
     users.into_iter().map(|u| (u.id, u)).collect()
+}
+
+/// Main entry point for testing.
+fn main() {
+    println!("Starting application");
+    let users = vec![];
+    let _processed = process_users(users);
 }
 
 #[cfg(test)]
@@ -835,6 +1018,27 @@ mod tests {
         assert "Repository" in result.exports
         assert "process_users" in result.exports
 
+        # Check token info
+        assert result.token_info is not None
+        assert result.token_info["total_tokens"] > 0
+        assert result.token_info["code_tokens"] > 0
+        assert result.token_info["documentation_tokens"] > 0
+
+        # Check metadata
+        assert result.metadata is not None
+        assert result.metadata["has_main_fn"] is True
+        assert result.metadata["is_lib_rs"] is True
+
+        # Verify documentation was extracted
+        user_elements = [e for e in result.elements if e.name == "User"]
+        assert len(user_elements) > 0
+        user_struct = user_elements[0]
+        assert user_struct.summary == "User data structure with serialization support."
+
+        # Check that all elements have token counts
+        for element in result.elements:
+            assert element.tokens > 0
+
     def test_plugin_communication_integration(self, monkeypatch, capsys):
         """Test the complete plugin communication workflow."""
         analyzer = RustAnalyzer()
@@ -860,6 +1064,68 @@ mod tests {
         assert response["can_analyze"] is True
         assert response["confidence"] == 1.0
 
+    def test_analyze_message_integration(self, monkeypatch, capsys, temp_project_dir):
+        """Test the complete analyze message workflow."""
+        analyzer = RustAnalyzer()
+
+        # Create a simple Rust file
+        test_content = """
+/// Greets someone by name.
+fn greet(name: &str) -> String {
+    format!("Hello, {}!", name)
+}
+
+fn main() {
+    println!("{}", greet("World"));
+}
+"""
+
+        analyze_msg = {
+            "type": "analyze",
+            "input": {
+                "file_path": str(temp_project_dir / "greet.rs"),
+                "relative_path": "greet.rs",
+                "content": test_content,
+                "project_root": str(temp_project_dir),
+                "cache_dir": str(temp_project_dir / ".csd_cache"),
+                "plugin_config": None,
+            },
+        }
+
+        from io import StringIO
+
+        mock_stdin = StringIO(json.dumps(analyze_msg))
+        monkeypatch.setattr(sys, "stdin", mock_stdin)
+
+        analyzer.run()
+
+        captured = capsys.readouterr()
+        response = json.loads(captured.out.strip())
+
+        assert response["status"] == "success"
+        assert "cache_file" in response
+        assert response["processing_time_ms"] >= 0
+
+        # Verify cache file was created
+        cache_file = temp_project_dir / ".csd_cache" / response["cache_file"]
+        assert cache_file.exists()
+
+        # Verify cache file contains valid analysis
+        with open(cache_file, "r") as f:
+            cached_result = json.load(f)
+
+        assert cached_result["file_path"] == str(temp_project_dir / "greet.rs")
+        assert len(cached_result["elements"]) > 0
+        assert any(e["name"] == "greet" for e in cached_result["elements"])
+
+        # Check token info in cached result
+        assert "token_info" in cached_result
+        assert cached_result["token_info"]["total_tokens"] > 0
+
+        # Check that the greet function has its documentation
+        greet_elem = next(e for e in cached_result["elements"] if e["name"] == "greet")
+        assert greet_elem["summary"] == "Greets someone by name."
+
     def test_get_info_integration(self, monkeypatch, capsys):
         """Test the get_info message workflow."""
         analyzer = RustAnalyzer()
@@ -878,7 +1144,7 @@ mod tests {
 
         assert response["status"] == "info"
         assert response["name"] == "rust"
-        assert response["version"] == "1.0.0"
+        assert response["version"] == "2.0.0"  # Updated version
         assert ".rs" in response["supported_extensions"]
         assert "Cargo.toml" in response["supported_filenames"]
 
@@ -909,6 +1175,9 @@ class TestRustAnalyzerEdgeCases:
         assert result.exports == []
         assert result.relationships == []
 
+        # Should still have token info (all zeros)
+        assert result.token_info["total_tokens"] == 0
+
     def test_comments_only_file(self):
         """Test analysis of files with only comments."""
         content = """
@@ -916,15 +1185,16 @@ class TestRustAnalyzerEdgeCases:
 // Used for documentation purposes
 // No actual code here
 
-/*
- * This is a block comment
- * with multiple lines
- */
+/// This is a doc comment
+/// but there's no code below it.
 
-/// Documentation comment
-/// for a non-existent item
+//! Module-level documentation.
 
-//! Module-level documentation
+/* Block comment
+   with multiple lines */
+
+// More comments
+// And more comments
 """
         input_data = PluginInput(
             file_path="/project/comments.rs",
@@ -941,6 +1211,11 @@ class TestRustAnalyzerEdgeCases:
         assert result.elements == []
         assert result.imports == []
         assert result.exports == []
+
+        # Should have token info
+        assert result.token_info["total_tokens"] > 0
+        assert result.token_info["documentation_tokens"] > 0  # Doc comments
+        assert result.token_info["comment_tokens"] > 0  # Regular comments
 
     def test_malformed_cargo_toml(self):
         """Test handling of malformed Cargo.toml files."""
@@ -979,9 +1254,14 @@ pytest = "7.0.0"
         # At minimum, should not crash
         assert isinstance(dep_names, list)
 
+        # Should have token info
+        assert result.token_info is not None
+        assert result.token_info["total_tokens"] > 0
+
     def test_complex_rust_generics(self):
         """Test handling of complex Rust generics and lifetimes."""
         content = """
+/// Complex struct with lifetimes and generics.
 struct ComplexStruct<'a, T, U>
 where
     T: Clone + Send + Sync,
@@ -996,11 +1276,13 @@ where
     T: Clone + Send + Sync,
     U: std::fmt::Display,
 {
+    /// Creates a new complex struct instance.
     fn new(data: &'a [T], formatter: U) -> Self {
         Self { data, formatter }
     }
 }
 
+/// Complex function with lifetimes.
 fn complex_function<'a, 'b: 'a, T>(
     x: &'a T,
     y: &'b str,
@@ -1031,9 +1313,14 @@ where
         assert "function" in element_types
         # impl might or might not be detected depending on regex complexity
 
+        # Check that elements have token counts
+        for element in result.elements:
+            assert element.tokens > 0
+
     def test_macro_definitions_and_calls(self):
         """Test handling of Rust macros."""
         content = """
+/// Debug print macro for development.
 macro_rules! debug_print {
     ($($arg:tt)*) => {
         #[cfg(debug_assertions)]
@@ -1041,6 +1328,7 @@ macro_rules! debug_print {
     };
 }
 
+/// Macro to create functions dynamically.
 macro_rules! create_function {
     ($name:ident) => {
         fn $name() -> String {
@@ -1051,6 +1339,7 @@ macro_rules! create_function {
 
 create_function!(test_function);
 
+/// Function that uses various macros.
 fn use_macros() {
     debug_print!("Debug message: {}", 42);
     println!("Regular print");
@@ -1058,6 +1347,7 @@ fn use_macros() {
     format!("Formatted string: {}", "test");
 }
 
+/// Struct with derive macros.
 #[derive(Debug, Clone, Serialize)]
 struct MacroUser {
     name: String,
@@ -1081,6 +1371,13 @@ struct MacroUser {
         element_names = [e.name for e in result.elements]
         assert "use_macros" in element_names or "MacroUser" in element_names
 
+        # Check documentation extraction
+        use_macros_elem = next(
+            (e for e in result.elements if e.name == "use_macros"), None
+        )
+        if use_macros_elem:
+            assert use_macros_elem.summary == "Function that uses various macros."
+
     def test_very_long_rust_file(self):
         """Test handling of very long Rust files."""
         # Generate a long file with many functions
@@ -1088,6 +1385,7 @@ struct MacroUser {
         for i in range(50):
             functions.append(
                 f"""
+/// Function number {i} for processing.
 pub fn function_{i}() -> i32 {{
     let result = process_data_{i}();
     result + {i}
@@ -1117,23 +1415,33 @@ pub fn function_{i}() -> i32 {{
         found_count = sum(1 for i in range(50) if f"function_{i}" in function_names)
         assert found_count >= 40  # Should find most functions
 
+        # All functions should have documentation and tokens
+        for func in functions_found:
+            assert func.tokens > 0
+            if func.summary:
+                assert "Function number" in func.summary
+
     def test_nested_modules_and_complex_structure(self):
         """Test handling of deeply nested Rust code structures."""
         content = """
+/// Outer module for organization.
 pub mod outer {
     use std::collections::HashMap;
 
+    /// Outer struct for data management.
     pub struct OuterStruct {
         data: HashMap<String, i32>,
     }
 
     impl OuterStruct {
+        /// Creates a new outer struct.
         pub fn new() -> Self {
             Self {
                 data: HashMap::new(),
             }
         }
 
+        /// Processes data with error handling.
         pub fn process(&self) -> Result<i32, String> {
             match self.data.get("key") {
                 Some(value) => {
@@ -1148,9 +1456,11 @@ pub mod outer {
         }
     }
 
+    /// Inner module for specialized functions.
     pub mod inner {
         use super::OuterStruct;
 
+        /// Trait for processing items.
         pub trait Processor {
             fn process_item(&self, item: i32) -> i32;
         }
@@ -1161,7 +1471,9 @@ pub mod outer {
             }
         }
 
+        /// Deeply nested module for helpers.
         pub mod deeply_nested {
+            /// Helper function for validation.
             pub fn helper_function() -> bool {
                 true
             }
@@ -1194,6 +1506,11 @@ pub mod outer {
             for name in element_names
         )
 
+        # Check documentation extraction
+        outer_elements = [e for e in result.elements if "outer" in e.name]
+        if outer_elements:
+            assert any(e.summary for e in outer_elements)
+
     def test_unicode_in_rust_code(self):
         """Test handling of Unicode in Rust code (strings, comments)."""
         content = """
@@ -1201,7 +1518,7 @@ pub mod outer {
 // Mathematical symbols: α, β, γ, π
 // Non-ASCII: résumé, naïve, façade
 
-/// Documentation with Unicode: λ calculus
+/// Documentation with Unicode: λ calculus function.
 pub fn unicode_function() -> String {
     let message = "Hello, 世界! 🌍";
     let math = "π ≈ 3.14159";
@@ -1210,13 +1527,16 @@ pub fn unicode_function() -> String {
     format!("{} {} {}", message, math, emoji)
 }
 
+/// Unicode struct for international data.
 pub struct UnicodeStruct {
     pub café: String,
     pub naïve_value: i32,
     pub résumé: Vec<String>,
 }
 
+/// Unicode constant with emoji.
 const PI_SYMBOL: &str = "π";
+/// Crab emoji constant.
 const CRAB_EMOJI: &str = "🦀";
 """
         input_data = PluginInput(
@@ -1238,12 +1558,22 @@ const CRAB_EMOJI: &str = "🦀";
         assert "unicode_function" in element_names
         assert "UnicodeStruct" in element_names
 
+        # Check Unicode preservation in documentation
+        unicode_func = next(e for e in result.elements if e.name == "unicode_function")
+        assert (
+            unicode_func.summary == "Documentation with Unicode: λ calculus function."
+        )
+
+        unicode_struct = next(e for e in result.elements if e.name == "UnicodeStruct")
+        assert unicode_struct.summary == "Unicode struct for international data."
+
     def test_attribute_heavy_code(self):
         """Test handling of Rust code with many attributes."""
         content = """
 #![warn(missing_docs)]
 #![allow(dead_code)]
 
+/// Attribute-heavy struct with serialization.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AttributeHeavy {
@@ -1259,12 +1589,14 @@ pub struct AttributeHeavy {
 mod tests {
     use super::*;
 
+    /// Test with panic attribute.
     #[test]
     #[should_panic(expected = "test panic")]
     fn test_with_attributes() {
         panic!("test panic");
     }
 
+    /// Expensive test that's ignored by default.
     #[test]
     #[ignore = "expensive test"]
     fn expensive_test() {
@@ -1272,12 +1604,14 @@ mod tests {
     }
 }
 
+/// Important function with performance attributes.
 #[inline(always)]
 #[must_use]
 pub fn important_function() -> i32 {
     42
 }
 
+/// Deprecated function with warning.
 #[deprecated(since = "1.0.0", note = "Use new_function instead")]
 pub fn old_function() -> i32 {
     0
@@ -1305,9 +1639,14 @@ pub fn old_function() -> i32 {
             for name in element_names
         )
 
+        # Check documentation extraction despite attributes
+        attr_struct = next(e for e in result.elements if e.name == "AttributeHeavy")
+        assert attr_struct.summary == "Attribute-heavy struct with serialization."
+
     def test_plugin_configuration_handling(self):
         """Test handling of plugin configuration."""
         code = """
+/// Test function for configuration handling.
 pub fn test_function() -> bool {
     true
 }
@@ -1334,6 +1673,10 @@ pub fn test_function() -> bool {
         # Should handle configuration without issues
         assert isinstance(result, PluginOutput)
         assert len(result.elements) > 0
+
+        # Function should have its documentation
+        func = result.elements[0]
+        assert func.summary == "Test function for configuration handling."
 
     def test_find_element_end_edge_cases(self):
         """Test the _find_element_end method with edge cases."""
@@ -1366,6 +1709,36 @@ pub fn test_function() -> bool {
         # Test single-line constant
         end_line = self.analyzer._find_element_end(lines, 10, lines[10])
         assert end_line == 11  # Should be the next line
+
+    def test_extract_element_documentation(self):
+        """Test documentation extraction for elements."""
+        lines = [
+            "// Regular comment",
+            "/// First doc line",
+            "/// Second doc line",
+            "#[derive(Debug)]",
+            "pub struct TestStruct {",
+            "    field: i32,",
+            "}",
+            "",
+            "//! Module level doc",
+            "/// Single line doc",
+            "fn test_function() {}",
+        ]
+
+        # Test multi-line documentation
+        doc = self.analyzer._extract_element_documentation(lines, 4)  # TestStruct line
+        assert doc == "First doc line\nSecond doc line"
+
+        # Test single-line documentation
+        doc = self.analyzer._extract_element_documentation(
+            lines, 10
+        )  # test_function line
+        assert doc == "Module level doc\nSingle line doc"
+
+        # Test no documentation
+        doc = self.analyzer._extract_element_documentation(lines, 0)  # First line
+        assert doc is None
 
 
 if __name__ == "__main__":
