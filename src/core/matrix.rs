@@ -1,3 +1,9 @@
+//! Project matrix data structures and operations.
+//!
+//! This module defines the core data model for representing a scanned project,
+//! including files, relationships, dependencies, and metadata. The project matrix
+//! serves as the central data structure for analysis and documentation generation.
+
 use anyhow::Result;
 use chrono::{DateTime, Utc};
 use log::{debug, info};
@@ -8,8 +14,17 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
+/// Graph representation of project structure using petgraph.
+///
+/// A directed graph where nodes are files and edges represent relationships
+/// between files such as imports, calls, or other dependencies.
 pub type ProjectGraph = Graph<FileNode, RelationshipEdge, Directed>;
 
+/// Core data structure representing a complete project analysis.
+///
+/// Contains all information about a scanned project including files, relationships,
+/// external dependencies, and metadata. Provides methods for building, querying,
+/// and persisting the project structure.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProjectMatrix {
     pub metadata: ProjectMetadata,
@@ -25,6 +40,10 @@ pub struct ProjectMatrix {
     node_indexes: HashMap<PathBuf, NodeIndex>,
 }
 
+/// Metadata about the project scan operation.
+///
+/// Contains information about when and how the project was scanned,
+/// including timing, version, and summary statistics.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProjectMetadata {
     pub project_root: PathBuf,
@@ -36,6 +55,10 @@ pub struct ProjectMetadata {
     pub plugins_used: Vec<String>,
 }
 
+/// High-level analysis results for the project.
+///
+/// Contains derived information about the project structure, including
+/// detected entrypoints, project type classification, and token analysis.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProjectInfo {
     pub entrypoints: Vec<EntrypointInfo>,
@@ -44,6 +67,10 @@ pub struct ProjectInfo {
     pub token_summary: TokenSummary,
 }
 
+/// Information about a detected project entrypoint.
+///
+/// Represents a file that serves as an entry point to the application,
+/// such as main functions, CLI entry points, or web application roots.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EntrypointInfo {
     pub file_path: PathBuf,
@@ -52,6 +79,9 @@ pub struct EntrypointInfo {
     pub reason: String,
 }
 
+/// Classification of the project's primary purpose.
+///
+/// Categorizes the project based on its structure and detected entrypoints.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ProjectType {
     Binary,
@@ -61,6 +91,10 @@ pub enum ProjectType {
     Unknown,
 }
 
+/// Summary of token counts across the project.
+///
+/// Provides aggregated statistics about code volume measured in tokens,
+/// useful for understanding project size and complexity.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TokenSummary {
     pub total_tokens: u64,
@@ -71,6 +105,10 @@ pub struct TokenSummary {
     pub largest_file_path: Option<PathBuf>,
 }
 
+/// Representation of a single file in the project.
+///
+/// Contains all analyzed information about a file including its metadata,
+/// code elements, dependencies, and token counts.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FileNode {
     pub path: PathBuf,
@@ -88,6 +126,10 @@ pub struct FileNode {
     pub token_info: TokenInfo,
 }
 
+/// Token count breakdown for a single file.
+///
+/// Provides detailed token statistics categorized by content type
+/// (code, documentation, comments).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TokenInfo {
     pub total_tokens: u64,
@@ -96,6 +138,10 @@ pub struct TokenInfo {
     pub comment_tokens: u64,
 }
 
+/// A code element within a file (function, class, etc.).
+///
+/// Represents a discrete code construct that was identified and analyzed
+/// by input plugins, including its location, signature, and metadata.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CodeElement {
     pub element_type: ElementType,
@@ -111,6 +157,7 @@ pub struct CodeElement {
     pub tokens: u64,
 }
 
+/// Types of code elements that can be identified in source files.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum ElementType {
     Function,
@@ -125,6 +172,9 @@ pub enum ElementType {
     Type,
 }
 
+/// An import or dependency declaration in a source file.
+///
+/// Represents how one file depends on another module, library, or file.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Import {
     pub module: String,
@@ -134,6 +184,7 @@ pub struct Import {
     pub import_type: ImportType,
 }
 
+/// Classification of import types based on their source.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum ImportType {
     Standard,
@@ -142,6 +193,10 @@ pub enum ImportType {
     Relative,
 }
 
+/// A relationship between two files in the project.
+///
+/// Represents various types of connections between files, such as imports,
+/// function calls, or other dependencies.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Relationship {
     pub from_file: PathBuf,
@@ -152,6 +207,7 @@ pub struct Relationship {
     pub strength: f32,
 }
 
+/// Types of relationships that can exist between files.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum RelationshipType {
     Import,
@@ -163,6 +219,10 @@ pub enum RelationshipType {
     Build,
 }
 
+/// Edge data for the project graph representation.
+///
+/// Contains relationship information used in the graph structure for
+/// dependency analysis and visualization.
 #[derive(Debug, Clone)]
 pub struct RelationshipEdge {
     pub relationship_type: RelationshipType,
@@ -170,6 +230,10 @@ pub struct RelationshipEdge {
     pub details: String,
 }
 
+/// An external dependency used by the project.
+///
+/// Represents dependencies on libraries, frameworks, or other external
+/// code that is not part of the project itself.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExternalDependency {
     pub name: String,
@@ -179,6 +243,7 @@ pub struct ExternalDependency {
     pub source_file: PathBuf,
 }
 
+/// Classification of external dependency usage types.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum DependencyType {
     Runtime,
@@ -188,6 +253,18 @@ pub enum DependencyType {
 }
 
 impl ProjectMatrix {
+    /// Creates a new empty project matrix for the given project root.
+    ///
+    /// Initializes all collections as empty and sets up default metadata
+    /// with the current timestamp and version information.
+    ///
+    /// # Arguments
+    ///
+    /// * `project_root` - Path to the root directory of the project
+    ///
+    /// # Returns
+    ///
+    /// A new empty `ProjectMatrix` ready for population.
     pub fn new(project_root: PathBuf) -> Self {
         Self {
             metadata: ProjectMetadata {
@@ -220,6 +297,14 @@ impl ProjectMatrix {
         }
     }
 
+    /// Adds a file node to the matrix and updates aggregate statistics.
+    ///
+    /// Updates file count, total size, token counts, and plugin usage statistics.
+    /// Invalidates the internal graph representation which will be rebuilt on next access.
+    ///
+    /// # Arguments
+    ///
+    /// * `file_node` - The file node to add to the matrix
     pub fn add_file(&mut self, file_node: FileNode) {
         debug!("Adding file to matrix: {}", file_node.path.display());
 
@@ -248,6 +333,14 @@ impl ProjectMatrix {
         self.node_indexes.clear();
     }
 
+    /// Adds a relationship between two files in the matrix.
+    ///
+    /// Records dependencies, imports, calls, or other connections between files.
+    /// Invalidates the internal graph representation.
+    ///
+    /// # Arguments
+    ///
+    /// * `relationship` - The relationship to add
     pub fn add_relationship(&mut self, relationship: Relationship) {
         debug!(
             "Adding relationship: {} -> {} ({})",
@@ -262,6 +355,14 @@ impl ProjectMatrix {
         self.node_indexes.clear();
     }
 
+    /// Adds an external dependency to the matrix.
+    ///
+    /// Records dependencies on libraries, frameworks, or other external code
+    /// that is not part of the project itself.
+    ///
+    /// # Arguments
+    ///
+    /// * `dependency` - The external dependency to add
     pub fn add_external_dependency(&mut self, dependency: ExternalDependency) {
         debug!(
             "Adding external dependency: {} from {}",
@@ -271,6 +372,10 @@ impl ProjectMatrix {
         self.external_dependencies.push(dependency);
     }
 
+    /// Finalizes the matrix after all files and relationships have been added.
+    ///
+    /// Calculates derived statistics, detects project entrypoints, and analyzes
+    /// the overall project structure. Should be called after all scanning is complete.
     pub fn finalize(&mut self) {
         if self.metadata.total_files > 0 {
             self.project_info.token_summary.average_tokens_per_file =
@@ -283,6 +388,10 @@ impl ProjectMatrix {
         self.analyze_project_structure();
     }
 
+    /// Detects likely entrypoints for the project based on file patterns and content.
+    ///
+    /// Looks for common entrypoint patterns like `main.rs`, `lib.rs`, `__main__.py`,
+    /// and scripts with main checks. Updates the project info with detected entrypoints.
     fn detect_entrypoints(&mut self) {
         let mut entrypoints = Vec::new();
 
@@ -362,6 +471,10 @@ impl ProjectMatrix {
         self.project_info.entrypoints = entrypoints;
     }
 
+    /// Analyzes the project structure to determine project type and main language.
+    ///
+    /// Examines file languages and entrypoints to classify the project as a binary,
+    /// library, mixed project, or web application.
     fn analyze_project_structure(&mut self) {
         let mut language_counts: HashMap<String, usize> = HashMap::new();
         for file in self.files.values() {
@@ -393,6 +506,18 @@ impl ProjectMatrix {
         };
     }
 
+    /// Saves the project matrix to a JSON file.
+    ///
+    /// Serializes the complete matrix to JSON format and writes it to the specified path.
+    /// Creates parent directories if they don't exist.
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - Path where the matrix file should be saved
+    ///
+    /// # Returns
+    ///
+    /// Result indicating success or failure of the save operation.
     pub async fn save(&self, path: &Path) -> Result<()> {
         debug!("Saving project matrix to: {}", path.display());
 
@@ -411,6 +536,17 @@ impl ProjectMatrix {
         Ok(())
     }
 
+    /// Loads a project matrix from a JSON file.
+    ///
+    /// Deserializes a previously saved matrix and rebuilds the internal graph structure.
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - Path to the matrix file to load
+    ///
+    /// # Returns
+    ///
+    /// The loaded project matrix or an error if loading fails.
     pub async fn load(path: &Path) -> Result<Self> {
         debug!("Loading project matrix from: {}", path.display());
 
@@ -426,6 +562,19 @@ impl ProjectMatrix {
         Ok(matrix)
     }
 
+    /// Loads a subset of files from a saved project matrix.
+    ///
+    /// Creates a new matrix containing only the specified files and their
+    /// relationships, useful for focused analysis of part of a project.
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - Path to the full matrix file
+    /// * `file_paths` - Paths of files to include in the subset
+    ///
+    /// # Returns
+    ///
+    /// A new matrix containing only the specified files and their relationships.
     pub async fn load_subset(path: &Path, file_paths: &[PathBuf]) -> Result<Self> {
         let full_matrix = Self::load(path).await?;
         let mut subset_matrix = ProjectMatrix::new(full_matrix.metadata.project_root.clone());
@@ -459,12 +608,32 @@ impl ProjectMatrix {
         Ok(subset_matrix)
     }
 
+    /// Returns files sorted by token count in descending order.
+    ///
+    /// Useful for identifying the largest files in the project or for
+    /// token budget allocation in analysis operations.
+    ///
+    /// # Returns
+    ///
+    /// Vector of (path, file_node) tuples sorted by total token count.
     pub fn get_files_by_token_count(&self) -> Vec<(&PathBuf, &FileNode)> {
         let mut files: Vec<_> = self.files.iter().collect();
         files.sort_by_key(|(_, node)| std::cmp::Reverse(node.token_info.total_tokens));
         files
     }
 
+    /// Calculates which files can fit within a given token budget.
+    ///
+    /// Determines the optimal set of files to include when there's a limit
+    /// on total tokens that can be processed, prioritizing larger files first.
+    ///
+    /// # Arguments
+    ///
+    /// * `max_tokens` - Maximum number of tokens available
+    ///
+    /// # Returns
+    ///
+    /// Information about which files are included/excluded and token usage.
     pub fn get_token_budget_info(&self, max_tokens: u64) -> TokenBudgetInfo {
         let mut included_files = Vec::new();
         let mut remaining_tokens = max_tokens;
@@ -496,6 +665,10 @@ impl ProjectMatrix {
         }
     }
 
+    /// Rebuilds the internal graph representation from matrix data.
+    ///
+    /// Creates a new petgraph structure with files as nodes and relationships
+    /// as edges. Called automatically when the graph is needed after modifications.
     fn rebuild_graph(&mut self) {
         debug!("Rebuilding graph from matrix data");
 
@@ -531,12 +704,27 @@ impl ProjectMatrix {
         );
     }
 
+    /// Ensures the internal graph representation is built and up-to-date.
+    ///
+    /// Rebuilds the graph if it has been invalidated by adding files or relationships.
     fn ensure_graph(&mut self) {
         if self.graph.is_none() {
             self.rebuild_graph();
         }
     }
 
+    /// Finds all files that depend on the specified file.
+    ///
+    /// Returns files that import from, call into, or otherwise depend on
+    /// the given file.
+    ///
+    /// # Arguments
+    ///
+    /// * `file_path` - Path of the file to find dependents for
+    ///
+    /// # Returns
+    ///
+    /// Vector of file nodes that depend on the specified file.
     pub fn find_dependents(&mut self, file_path: &Path) -> Vec<&FileNode> {
         self.ensure_graph();
 
@@ -555,6 +743,18 @@ impl ProjectMatrix {
         dependents
     }
 
+    /// Finds all files that the specified file depends on.
+    ///
+    /// Returns files that are imported by, called by, or otherwise depended
+    /// upon by the given file.
+    ///
+    /// # Arguments
+    ///
+    /// * `file_path` - Path of the file to find dependencies for
+    ///
+    /// # Returns
+    ///
+    /// Vector of file nodes that the specified file depends on.
     pub fn find_dependencies(&mut self, file_path: &Path) -> Vec<&FileNode> {
         self.ensure_graph();
 
@@ -573,6 +773,18 @@ impl ProjectMatrix {
         dependencies
     }
 
+    /// Returns all files that were processed by a specific plugin.
+    ///
+    /// Useful for understanding which plugin handled which files and for
+    /// plugin-specific analysis.
+    ///
+    /// # Arguments
+    ///
+    /// * `plugin_name` - Name of the plugin to filter by
+    ///
+    /// # Returns
+    ///
+    /// Vector of file nodes processed by the specified plugin.
     pub fn get_files_by_plugin(&self, plugin_name: &str) -> Vec<&FileNode> {
         self.files
             .values()
@@ -580,6 +792,14 @@ impl ProjectMatrix {
             .collect()
     }
 
+    /// Calculates various metrics about the project structure.
+    ///
+    /// Analyzes the project graph to determine coupling scores, identify
+    /// highly connected files, and provide other structural insights.
+    ///
+    /// # Returns
+    ///
+    /// Calculated metrics including coupling analysis and summary statistics.
     pub fn calculate_metrics(&mut self) -> ProjectMetrics {
         self.ensure_graph();
 
@@ -607,6 +827,10 @@ impl ProjectMatrix {
         }
     }
 
+    /// Prints a human-readable summary of the project matrix to stdout.
+    ///
+    /// Displays key statistics, file breakdown by plugin, token information,
+    /// detected entrypoints, and other useful summary information.
     pub fn print_summary(&mut self) {
         println!("\n=== Project Matrix Summary ===");
         println!("Project: {}", self.metadata.project_root.display());
@@ -701,6 +925,10 @@ impl ProjectMatrix {
     }
 }
 
+/// Calculated metrics about the project structure.
+///
+/// Provides analysis results including coupling scores, complexity measures,
+/// and other derived insights about the codebase.
 #[derive(Debug)]
 pub struct ProjectMetrics {
     pub total_files: usize,
@@ -710,6 +938,10 @@ pub struct ProjectMetrics {
     pub total_tokens: u64,
 }
 
+/// Information about token budget allocation for analysis.
+///
+/// Helps determine which files can be included in analysis operations
+/// that have token limits, such as LLM processing.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TokenBudgetInfo {
     pub max_tokens: u64,
@@ -719,10 +951,35 @@ pub struct TokenBudgetInfo {
     pub excluded_files: Vec<PathBuf>,
 }
 
+/// Estimates the number of tokens in a text string.
+///
+/// Uses a simple heuristic of approximately 4 characters per token,
+/// which works reasonably well for most text content.
+///
+/// # Arguments
+///
+/// * `text` - The text to analyze
+///
+/// # Returns
+///
+/// Estimated number of tokens in the text.
 pub fn estimate_tokens(text: &str) -> u64 {
     (text.len() as f64 / 4.0).ceil() as u64
 }
 
+/// Estimates the number of tokens in source code.
+///
+/// Uses a more sophisticated approach than general text, counting
+/// identifiers, keywords, and delimiters separately for better
+/// accuracy with code content.
+///
+/// # Arguments
+///
+/// * `code` - The source code to analyze
+///
+/// # Returns
+///
+/// Estimated number of tokens in the code.
 pub fn estimate_code_tokens(code: &str) -> u64 {
     let token_count = code
         .split(|c: char| c.is_whitespace() || "(){}[]<>,.;:\"'`|\\/-+=*&%$#@!?~".contains(c))

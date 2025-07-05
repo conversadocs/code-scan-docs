@@ -1,3 +1,9 @@
+//! Command handling and execution logic.
+//!
+//! This module contains the main command dispatcher and individual command handlers
+//! for all CLI operations including project initialization, quality analysis,
+//! documentation generation, plugin management, and configuration setup.
+
 use anyhow::Result;
 use log::{debug, info, warn};
 use std::path::PathBuf;
@@ -8,6 +14,18 @@ use crate::plugins::interface::{OutputPluginInput, OutputPluginInterface};
 use crate::plugins::manager::PluginManager;
 use crate::utils::config::Config;
 
+/// Main command dispatcher that routes CLI arguments to appropriate handlers.
+///
+/// This function loads the configuration and delegates to specific command handlers
+/// based on the parsed command-line arguments.
+///
+/// # Arguments
+///
+/// * `args` - Parsed command-line arguments containing the command and options
+///
+/// # Returns
+///
+/// Returns `Ok(())` on successful command execution, or an error if any step fails.
 pub async fn handle_command(args: Args) -> Result<()> {
     let config = load_config(&args).await?;
 
@@ -30,6 +48,19 @@ pub async fn handle_command(args: Args) -> Result<()> {
     }
 }
 
+/// Loads configuration from file or returns default configuration.
+///
+/// Attempts to load configuration from the specified path in args, or from
+/// the default `.csdrc.yaml` file. If no configuration file exists, returns
+/// a default configuration.
+///
+/// # Arguments
+///
+/// * `args` - Command-line arguments that may contain a custom config path
+///
+/// # Returns
+///
+/// Returns the loaded or default configuration, or an error if loading fails.
 async fn load_config(args: &Args) -> Result<Config> {
     let default_path = PathBuf::from(".csdrc.yaml");
     let config_path = args.config.as_ref().unwrap_or(&default_path);
@@ -43,6 +74,23 @@ async fn load_config(args: &Args) -> Result<Config> {
     }
 }
 
+/// Handles the `init` command to scan a project and build the code matrix.
+///
+/// Scans the specified project directory, builds a comprehensive code matrix,
+/// and optionally exports it in various formats.
+///
+/// # Arguments
+///
+/// * `path` - Optional project path (defaults to current directory)
+/// * `output` - Format for optional output file
+/// * `output_file` - Optional path to save the matrix export
+/// * `_no_llm` - Flag to disable LLM features (not yet implemented)
+/// * `_include_tests` - Flag to include test files (not yet implemented)
+/// * `config` - Application configuration
+///
+/// # Returns
+///
+/// Returns `Ok(())` on successful initialization, or an error if scanning fails.
 async fn handle_init(
     path: Option<PathBuf>,
     output: crate::cli::args::OutputFormat,
@@ -96,6 +144,21 @@ async fn handle_init(
     Ok(())
 }
 
+/// Handles the `quality` command for code quality analysis.
+///
+/// Loads the project matrix and performs quality analysis using configured
+/// output plugins. Currently shows available plugins but full implementation
+/// is pending.
+///
+/// # Arguments
+///
+/// * `matrix` - Optional path to matrix file (defaults to `.csd_cache/matrix.json`)
+/// * `_metrics` - Quality metrics to analyze (not yet implemented)
+/// * `config` - Application configuration
+///
+/// # Returns
+///
+/// Returns `Ok(())` on successful analysis setup, or an error if matrix is missing.
 async fn handle_quality(
     matrix: Option<PathBuf>,
     _metrics: Vec<crate::cli::args::QualityMetric>,
@@ -136,6 +199,22 @@ async fn handle_quality(
     Ok(())
 }
 
+/// Handles the `docs` command for documentation generation.
+///
+/// Loads the project matrix and generates documentation using configured
+/// output plugins in the specified format.
+///
+/// # Arguments
+///
+/// * `matrix` - Optional path to matrix file (defaults to `.csd_cache/matrix.json`)
+/// * `format` - Documentation format (markdown, html, or pdf)
+/// * `output_dir` - Optional output directory (defaults to config setting)
+/// * `config` - Application configuration
+///
+/// # Returns
+///
+/// Returns `Ok(())` on successful documentation generation, or an error if
+/// the matrix is missing or plugin execution fails.
 async fn handle_docs(
     matrix: Option<PathBuf>,
     format: crate::cli::args::DocFormat,
@@ -258,6 +337,19 @@ async fn handle_docs(
     Ok(())
 }
 
+/// Handles the `plugins` command to list available plugins.
+///
+/// Discovers and displays information about all configured input and output
+/// plugins, with optional detailed view.
+///
+/// # Arguments
+///
+/// * `detailed` - Whether to show detailed plugin information
+/// * `config` - Application configuration
+///
+/// # Returns
+///
+/// Returns `Ok(())` on successful plugin listing, or an error if discovery fails.
 async fn handle_plugins(detailed: bool, config: &Config) -> Result<()> {
     debug!("Listing available plugins...");
 
@@ -343,6 +435,19 @@ async fn handle_plugins(detailed: bool, config: &Config) -> Result<()> {
     Ok(())
 }
 
+/// Handles the `config` command to initialize configuration file.
+///
+/// Creates a default configuration file in the current directory, with
+/// option to force overwrite existing files.
+///
+/// # Arguments
+///
+/// * `force` - Whether to overwrite existing configuration file
+///
+/// # Returns
+///
+/// Returns `Ok(())` on successful config creation, or an error if file
+/// already exists (without force) or creation fails.
 async fn handle_config(force: bool) -> Result<()> {
     debug!("Initializing configuration...");
 

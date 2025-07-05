@@ -1,7 +1,17 @@
+//! Plugin management and discovery functionality.
+//!
+//! This module provides comprehensive plugin management capabilities including
+//! discovery, validation, installation, and configuration management for both
+//! input and output plugins.
+
 use crate::utils::config::{Config, PluginSource};
 use anyhow::Result;
 use std::path::PathBuf;
 
+/// Comprehensive information about a discovered plugin.
+///
+/// Contains metadata about a plugin including its capabilities, source,
+/// and current status. Used by the plugin manager for discovery and selection.
 #[derive(Debug)]
 pub struct PluginInfo {
     pub name: String,
@@ -15,15 +25,36 @@ pub struct PluginInfo {
     pub enabled: bool,
 }
 
+/// Central manager for plugin discovery, validation, and lifecycle management.
+///
+/// Handles plugin discovery from various sources, validates plugin availability,
+/// and provides methods for querying plugin capabilities and managing plugin state.
 pub struct PluginManager {
     config: Config,
 }
 
 impl PluginManager {
+    /// Creates a new plugin manager with the given configuration.
+    ///
+    /// # Arguments
+    ///
+    /// * `config` - Configuration containing plugin settings and sources
+    ///
+    /// # Returns
+    ///
+    /// A new `PluginManager` instance ready for plugin operations.
     pub fn new(config: Config) -> Self {
         Self { config }
     }
 
+    /// Discovers all available plugins from the configuration.
+    ///
+    /// Scans both input and output plugin configurations, resolving paths
+    /// and building comprehensive plugin information for enabled plugins.
+    ///
+    /// # Returns
+    ///
+    /// A vector of plugin information for all discovered plugins.
     pub async fn discover_plugins(&self) -> Result<Vec<PluginInfo>> {
         let mut plugins = Vec::new();
 
@@ -74,6 +105,11 @@ impl PluginManager {
         Ok(plugins)
     }
 
+    /// Discovers only input (analysis) plugins.
+    ///
+    /// # Returns
+    ///
+    /// A vector of plugin information for all discovered input plugins.
     pub async fn discover_input_plugins(&self) -> Result<Vec<PluginInfo>> {
         let all_plugins = self.discover_plugins().await?;
         Ok(all_plugins
@@ -82,6 +118,11 @@ impl PluginManager {
             .collect())
     }
 
+    /// Discovers only output (generation) plugins.
+    ///
+    /// # Returns
+    ///
+    /// A vector of plugin information for all discovered output plugins.
     pub async fn discover_output_plugins(&self) -> Result<Vec<PluginInfo>> {
         let all_plugins = self.discover_plugins().await?;
         Ok(all_plugins
@@ -90,6 +131,18 @@ impl PluginManager {
             .collect())
     }
 
+    /// Finds output plugins capable of generating specific output types and formats.
+    ///
+    /// Matches the requested output type and format against plugin capabilities.
+    ///
+    /// # Arguments
+    ///
+    /// * `output_type` - Type of output to generate (e.g., "documentation")
+    /// * `format` - Output format (e.g., "markdown", "html")
+    ///
+    /// # Returns
+    ///
+    /// A vector of plugins that can generate the requested output.
     pub async fn find_input_plugins_for_file(
         &self,
         file_path: &std::path::Path,
@@ -127,6 +180,18 @@ impl PluginManager {
         Ok(matching_plugins)
     }
 
+    /// Finds output plugins capable of generating specific output types and formats.
+    ///
+    /// Matches the requested output type and format against plugin capabilities.
+    ///
+    /// # Arguments
+    ///
+    /// * `output_type` - Type of output to generate (e.g., "documentation")
+    /// * `format` - Output format (e.g., "markdown", "html")
+    ///
+    /// # Returns
+    ///
+    /// A vector of plugins that can generate the requested output.
     pub async fn find_output_plugins_for_generation(
         &self,
         output_type: &str,
@@ -150,6 +215,16 @@ impl PluginManager {
         Ok(matching_plugins)
     }
 
+    /// Retrieves information about a specific plugin by name and type.
+    ///
+    /// # Arguments
+    ///
+    /// * `name` - Name of the plugin to find
+    /// * `plugin_type` - Type of plugin ("input" or "output")
+    ///
+    /// # Returns
+    ///
+    /// Plugin information if found, or None if the plugin doesn't exist.
     pub async fn get_plugin(&self, name: &str, plugin_type: &str) -> Result<Option<PluginInfo>> {
         let plugins = self.discover_plugins().await?;
         Ok(plugins
@@ -157,6 +232,16 @@ impl PluginManager {
             .find(|p| p.name == name && p.plugin_type == plugin_type))
     }
 
+    /// Checks if a specific plugin is enabled in the configuration.
+    ///
+    /// # Arguments
+    ///
+    /// * `name` - Name of the plugin to check
+    /// * `plugin_type` - Type of plugin ("input" or "output")
+    ///
+    /// # Returns
+    ///
+    /// `true` if the plugin is enabled, `false` otherwise.
     pub fn is_plugin_enabled(&self, name: &str, plugin_type: &str) -> bool {
         match plugin_type {
             "input" => self
@@ -175,6 +260,14 @@ impl PluginManager {
         }
     }
 
+    /// Calculates comprehensive statistics about the plugin ecosystem.
+    ///
+    /// Analyzes all discovered plugins to provide counts by type, status,
+    /// and source for reporting and monitoring purposes.
+    ///
+    /// # Returns
+    ///
+    /// Detailed statistics about the plugin environment.
     pub async fn get_plugin_stats(&self) -> Result<PluginStats> {
         let all_plugins = self.discover_plugins().await?;
 
@@ -222,6 +315,20 @@ impl PluginManager {
         })
     }
 
+    /// Resolves the filesystem path for a plugin based on its source configuration.
+    ///
+    /// Handles different plugin sources including builtin, local, GitHub, and Git
+    /// repositories, generating appropriate paths for each type.
+    ///
+    /// # Arguments
+    ///
+    /// * `_name` - Name of the plugin (for future use)
+    /// * `source` - Plugin source configuration
+    /// * `plugin_category` - Category ("input" or "output")
+    ///
+    /// # Returns
+    ///
+    /// Resolved filesystem path to the plugin.
     async fn resolve_plugin_path(
         &self,
         _name: &str,
@@ -262,6 +369,20 @@ impl PluginManager {
         }
     }
 
+    /// Installs a plugin from a remote source (placeholder implementation).
+    ///
+    /// Currently a placeholder that will eventually handle downloading and
+    /// installing plugins from GitHub, Git repositories, or other sources.
+    ///
+    /// # Arguments
+    ///
+    /// * `name` - Name for the plugin
+    /// * `_source` - Source configuration for the plugin
+    /// * `plugin_type` - Type of plugin ("input" or "output")
+    ///
+    /// # Returns
+    ///
+    /// Result indicating success or failure of installation.
     pub async fn install_plugin(
         &mut self,
         name: String,
@@ -286,6 +407,18 @@ impl PluginManager {
         Ok(())
     }
 
+    /// Removes a plugin from the configuration.
+    ///
+    /// Removes the plugin configuration but does not delete files.
+    ///
+    /// # Arguments
+    ///
+    /// * `name` - Name of the plugin to remove
+    /// * `plugin_type` - Type of plugin ("input" or "output")
+    ///
+    /// # Returns
+    ///
+    /// `true` if the plugin was removed, `false` if it wasn't found.
     pub fn remove_plugin(&mut self, name: &str, plugin_type: &str) -> Result<bool> {
         let removed = match plugin_type {
             "input" => self.config.remove_input_plugin(name).is_some(),
@@ -296,6 +429,17 @@ impl PluginManager {
         Ok(removed)
     }
 
+    /// Enables or disables a plugin in the configuration.
+    ///
+    /// # Arguments
+    ///
+    /// * `name` - Name of the plugin to modify
+    /// * `plugin_type` - Type of plugin ("input" or "output")
+    /// * `enabled` - Whether the plugin should be enabled
+    ///
+    /// # Returns
+    ///
+    /// Result indicating success or failure of the operation.
     pub fn set_plugin_enabled(
         &mut self,
         name: &str,
@@ -323,6 +467,14 @@ impl PluginManager {
         }
     }
 
+    /// Validates that all enabled plugins are accessible and functional.
+    ///
+    /// Checks that plugin files exist at their configured paths and builds
+    /// a report of valid and invalid plugins.
+    ///
+    /// # Returns
+    ///
+    /// Validation results showing which plugins are accessible.
     pub async fn validate_plugins(&self) -> Result<ValidationResult> {
         let mut result = ValidationResult::default();
 
@@ -366,6 +518,10 @@ impl PluginManager {
     }
 }
 
+/// Statistics about the plugin ecosystem.
+///
+/// Provides counts and breakdowns of plugins by type, status, and source
+/// for monitoring and reporting purposes.
 #[derive(Debug, Default)]
 pub struct PluginStats {
     pub total_plugins: usize,
@@ -379,6 +535,10 @@ pub struct PluginStats {
     pub remote_plugins: usize,
 }
 
+/// Result of plugin validation operations.
+///
+/// Contains lists of valid and invalid plugins discovered during validation,
+/// useful for debugging configuration issues.
 #[derive(Debug, Default)]
 pub struct ValidationResult {
     pub valid_plugins: Vec<String>,
@@ -386,10 +546,20 @@ pub struct ValidationResult {
 }
 
 impl ValidationResult {
+    /// Checks if all plugins passed validation.
+    ///
+    /// # Returns
+    ///
+    /// `true` if no invalid plugins were found, `false` otherwise.
     pub fn is_valid(&self) -> bool {
         self.invalid_plugins.is_empty()
     }
 
+    /// Checks if any validation issues were found.
+    ///
+    /// # Returns
+    ///
+    /// `true` if invalid plugins were found, `false` otherwise.
     pub fn has_issues(&self) -> bool {
         !self.invalid_plugins.is_empty()
     }

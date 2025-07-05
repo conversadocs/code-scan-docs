@@ -1,8 +1,18 @@
+//! Configuration management for the application.
+//!
+//! This module provides comprehensive configuration handling including plugin
+//! configuration, scanning settings, LLM integration settings, and legacy
+//! configuration migration capabilities.
+
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
 
+/// Main application configuration structure.
+///
+/// Contains all configuration settings for the application including plugin
+/// configurations, scanning parameters, LLM settings, and output preferences.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
     pub output_dir: String,
@@ -16,6 +26,10 @@ pub struct Config {
     pub plugins: Option<HashMap<String, LegacyPluginConfig>>,
 }
 
+/// Configuration for an input (analysis) plugin.
+///
+/// Defines how an input plugin should be loaded, what files it can handle,
+/// and any plugin-specific configuration options.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InputPluginConfig {
     pub source: PluginSource,
@@ -24,6 +38,10 @@ pub struct InputPluginConfig {
     pub config: Option<serde_yaml::Value>,
 }
 
+/// Configuration for an output (generation) plugin.
+///
+/// Defines how an output plugin should be loaded, what output types and formats
+/// it supports, and any plugin-specific configuration options.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OutputPluginConfig {
     pub source: PluginSource,
@@ -33,6 +51,10 @@ pub struct OutputPluginConfig {
     pub config: Option<serde_yaml::Value>,
 }
 
+/// Legacy plugin configuration format for backward compatibility.
+///
+/// Supports older configuration files that used a unified plugin format
+/// before the separation of input and output plugins.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LegacyPluginConfig {
     pub source: PluginSource,
@@ -43,6 +65,10 @@ pub struct LegacyPluginConfig {
     pub config: Option<serde_yaml::Value>,
 }
 
+/// File matching patterns for input plugins.
+///
+/// Defines which files an input plugin can analyze based on file extensions,
+/// specific filenames, and glob patterns.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FilePatterns {
     pub extensions: Vec<String>,
@@ -50,6 +76,10 @@ pub struct FilePatterns {
     pub glob_patterns: Option<Vec<String>>,
 }
 
+/// Source location and type for plugins.
+///
+/// Defines where plugins are located and how they should be loaded,
+/// supporting local files, remote repositories, and built-in plugins.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum PluginSource {
@@ -66,6 +96,10 @@ pub enum PluginSource {
     Builtin { name: String, plugin_type: String },
 }
 
+/// Configuration for Large Language Model integration.
+///
+/// Contains settings for connecting to and using LLM services for
+/// enhanced analysis and documentation generation.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LlmConfig {
     pub provider: String,
@@ -74,6 +108,10 @@ pub struct LlmConfig {
     pub timeout_seconds: u64,
 }
 
+/// Configuration for project scanning behavior.
+///
+/// Controls which files are included in scanning, size limits,
+/// and ignore patterns for project analysis.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ScanConfig {
     pub ignore_patterns: Vec<String>,
@@ -181,6 +219,18 @@ impl Default for Config {
 }
 
 impl Config {
+    /// Loads configuration from a YAML file.
+    ///
+    /// Reads and parses a configuration file, automatically migrating
+    /// legacy configuration formats if necessary.
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - Path to the configuration file
+    ///
+    /// # Returns
+    ///
+    /// The loaded configuration or an error if loading fails.
     pub async fn load(path: &Path) -> Result<Self> {
         let content = tokio::fs::read_to_string(path).await?;
         let mut config: Config = serde_yaml::from_str(&content)?;
@@ -190,12 +240,27 @@ impl Config {
         Ok(config)
     }
 
+    /// Saves the configuration to a YAML file.
+    ///
+    /// Serializes the configuration and writes it to the specified path.
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - Path where the configuration should be saved
+    ///
+    /// # Returns
+    ///
+    /// Result indicating success or failure of the save operation.
     pub async fn save(&self, path: &Path) -> Result<()> {
         let content = serde_yaml::to_string(self)?;
         tokio::fs::write(path, content).await?;
         Ok(())
     }
 
+    /// Migrates legacy plugin configurations to the new format.
+    ///
+    /// Converts older unified plugin configurations into separate input
+    /// and output plugin configurations, removing the legacy format.
     fn migrate_legacy_plugins(&mut self) {
         if let Some(legacy_plugins) = &self.plugins {
             for (name, legacy_config) in legacy_plugins {
@@ -229,6 +294,18 @@ impl Config {
         }
     }
 
+    /// Finds the appropriate input plugin for analyzing a specific file.
+    ///
+    /// Matches the file's extension and name against plugin file patterns
+    /// to determine which plugin should handle the file.
+    ///
+    /// # Arguments
+    ///
+    /// * `file_path` - Path to the file to find a plugin for
+    ///
+    /// # Returns
+    ///
+    /// Name of the matching plugin, or None if no plugin can handle the file.
     pub fn find_input_plugin_for_file(&self, file_path: &Path) -> Option<String> {
         let filename = file_path
             .file_name()
@@ -266,6 +343,16 @@ impl Config {
         None
     }
 
+    /// Finds output plugins that can generate specific output types and formats.
+    ///
+    /// # Arguments
+    ///
+    /// * `output_type` - Type of output to generate (e.g., "documentation")
+    /// * `format` - Output format (e.g., "markdown", "html")
+    ///
+    /// # Returns
+    ///
+    /// Vector of plugin names that can generate the requested output.
     pub fn find_output_plugins_for_type(&self, output_type: &str, format: &str) -> Vec<String> {
         let mut matching_plugins = Vec::new();
 
@@ -290,6 +377,11 @@ impl Config {
         matching_plugins
     }
 
+    /// Returns all enabled input plugins and their configurations.
+    ///
+    /// # Returns
+    ///
+    /// Vector of tuples containing plugin names and their configurations.
     pub fn get_enabled_input_plugins(&self) -> Vec<(&String, &InputPluginConfig)> {
         self.input_plugins
             .iter()
@@ -297,6 +389,11 @@ impl Config {
             .collect()
     }
 
+    /// Returns all enabled output plugins and their configurations.
+    ///
+    /// # Returns
+    ///
+    /// Vector of tuples containing plugin names and their configurations.
     pub fn get_enabled_output_plugins(&self) -> Vec<(&String, &OutputPluginConfig)> {
         self.output_plugins
             .iter()
@@ -304,34 +401,99 @@ impl Config {
             .collect()
     }
 
+    /// Retrieves configuration for a specific input plugin.
+    ///
+    /// # Arguments
+    ///
+    /// * `name` - Name of the input plugin
+    ///
+    /// # Returns
+    ///
+    /// Plugin configuration if found, or None if the plugin doesn't exist.
     pub fn get_input_plugin(&self, name: &str) -> Option<&InputPluginConfig> {
         self.input_plugins.get(name)
     }
 
+    /// Retrieves configuration for a specific output plugin.
+    ///
+    /// # Arguments
+    ///
+    /// * `name` - Name of the output plugin
+    ///
+    /// # Returns
+    ///
+    /// Plugin configuration if found, or None if the plugin doesn't exist.
     pub fn get_output_plugin(&self, name: &str) -> Option<&OutputPluginConfig> {
         self.output_plugins.get(name)
     }
 
+    /// Adds a new input plugin configuration.
+    ///
+    /// # Arguments
+    ///
+    /// * `name` - Name for the plugin
+    /// * `config` - Plugin configuration
     pub fn add_input_plugin(&mut self, name: String, config: InputPluginConfig) {
         self.input_plugins.insert(name, config);
     }
 
+    /// Adds a new output plugin configuration.
+    ///
+    /// # Arguments
+    ///
+    /// * `name` - Name for the plugin
+    /// * `config` - Plugin configuration
     pub fn add_output_plugin(&mut self, name: String, config: OutputPluginConfig) {
         self.output_plugins.insert(name, config);
     }
 
+    /// Removes an input plugin configuration.
+    ///
+    /// # Arguments
+    ///
+    /// * `name` - Name of the plugin to remove
+    ///
+    /// # Returns
+    ///
+    /// The removed plugin configuration, or None if it wasn't found.
     pub fn remove_input_plugin(&mut self, name: &str) -> Option<InputPluginConfig> {
         self.input_plugins.remove(name)
     }
 
+    /// Removes an output plugin configuration.
+    ///
+    /// # Arguments
+    ///
+    /// * `name` - Name of the plugin to remove
+    ///
+    /// # Returns
+    ///
+    /// The removed plugin configuration, or None if it wasn't found.
     pub fn remove_output_plugin(&mut self, name: &str) -> Option<OutputPluginConfig> {
         self.output_plugins.remove(name)
     }
 
+    /// Alias for `find_input_plugin_for_file` for backward compatibility.
+    ///
+    /// # Arguments
+    ///
+    /// * `file_path` - Path to the file to find a plugin for
+    ///
+    /// # Returns
+    ///
+    /// Name of the matching plugin, or None if no plugin can handle the file.
     pub fn find_plugin_for_file(&self, file_path: &Path) -> Option<String> {
         self.find_input_plugin_for_file(file_path)
     }
 
+    /// Generates a summary of the current plugin configuration.
+    ///
+    /// Provides counts and lists of configured plugins for reporting
+    /// and monitoring purposes.
+    ///
+    /// # Returns
+    ///
+    /// Summary statistics about the plugin configuration.
     pub fn get_plugin_summary(&self) -> PluginSummary {
         PluginSummary {
             total_input_plugins: self.input_plugins.len(),
@@ -344,6 +506,10 @@ impl Config {
     }
 }
 
+/// Summary statistics about plugin configuration.
+///
+/// Contains counts of total and enabled plugins by type, as well as
+/// lists of plugin names for detailed reporting.
 #[derive(Debug, Clone)]
 pub struct PluginSummary {
     pub total_input_plugins: usize,
