@@ -1,3 +1,4 @@
+// src/plugins/interface.rs - Enhanced with token information
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
@@ -22,6 +23,12 @@ pub struct PluginOutput {
     pub file_summary: Option<String>,
     pub processing_time_ms: u64,
     pub plugin_version: String,
+
+    // NEW: Token information for the file
+    pub token_info: Option<serde_json::Value>, // Will be deserialized to TokenInfo in scanner
+
+    // NEW: Additional metadata about the file
+    pub metadata: Option<serde_json::Value>,
 }
 
 /// Output plugin result structure for documentation generators, quality scanners, etc.
@@ -53,10 +60,13 @@ pub struct CodeElement {
     pub signature: Option<String>,
     pub line_start: u32,
     pub line_end: u32,
-    pub summary: Option<String>,
+    pub summary: Option<String>, // NOW: Should be populated with docstrings/comments
     pub complexity_score: Option<u32>,
     pub calls: Vec<String>,
     pub metadata: serde_json::Value,
+
+    // NEW: Token count for this element
+    pub tokens: Option<u64>,
 }
 
 /// Import structure for plugin communication

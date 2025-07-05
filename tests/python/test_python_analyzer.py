@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """
-Unit tests for the Python analyzer plugin.
+Unit tests for the enhanced Python analyzer plugin with token counting.
 
 These tests cover Python code analysis including AST parsing, import detection,
-dependency extraction from Python ecosystem files, and relationship mapping.
+dependency extraction from Python ecosystem files, relationship mapping, and
+token counting functionality.
 
 Run with: pytest tests/python/test_python_analyzer.py -v
 """
@@ -20,7 +21,28 @@ from csd_plugin_sdk import (
 )
 
 # Import the Python analyzer
-from python_analyzer import PythonAnalyzer
+from python_analyzer import PythonAnalyzer, estimate_tokens, estimate_code_tokens
+
+
+class TestTokenEstimation:
+    """Test token estimation functions."""
+
+    def test_estimate_tokens_basic(self):
+        """Test basic token estimation."""
+        assert estimate_tokens("") == 0
+        assert estimate_tokens("Hello, world!") == 3
+        assert estimate_tokens("a" * 100) == 25
+
+    def test_estimate_code_tokens(self):
+        """Test code-specific token estimation."""
+        code = "def hello(): pass"
+        tokens = estimate_code_tokens(code)
+        assert tokens > 0
+
+        # Code with more delimiters should have more tokens
+        complex_code = "arr[0] = func(x, y) + obj.method();"
+        simple_code = "variable = value"
+        assert estimate_code_tokens(complex_code) > estimate_code_tokens(simple_code)
 
 
 class TestPythonAnalyzerBasics:
@@ -33,7 +55,7 @@ class TestPythonAnalyzerBasics:
     def test_analyzer_info(self):
         """Test analyzer basic information."""
         assert self.analyzer.name == "python"
-        assert self.analyzer.version == "1.0.0"
+        assert self.analyzer.version == "2.0.0"  # Updated version
         assert ".py" in self.analyzer.supported_extensions
         assert "requirements.txt" in self.analyzer.supported_filenames
         assert "setup.py" in self.analyzer.supported_filenames
@@ -145,7 +167,7 @@ class TestPythonAnalyzerBasics:
 
 
 class TestPythonCodeAnalysis:
-    """Test Python code analysis and AST parsing."""
+    """Test Python code analysis and AST parsing with token counting."""
 
     def setup_method(self):
         """Set up test fixtures."""
@@ -164,8 +186,8 @@ class TestPythonCodeAnalysis:
             plugin_config=None,
         )
 
-    def test_analyze_simple_function(self):
-        """Test analysis of simple Python functions."""
+    def test_analyze_simple_function_with_docstring(self):
+        """Test analysis of simple Python functions with docstring extraction."""
         code = '''
 def hello_world():
     """A simple greeting function."""
@@ -188,14 +210,27 @@ def add_numbers(a, b):
         assert hello_func.metadata["is_async"] is False
         assert hello_func.metadata["has_docstring"] is True
         assert hello_func.metadata["arg_count"] == 0
+        assert (
+            hello_func.summary == "A simple greeting function."
+        )  # Docstring extracted
+        assert hello_func.tokens > 0  # Should have token count
+        assert hello_func.metadata["docstring_tokens"] > 0
 
         add_func = next(f for f in functions if f.name == "add_numbers")
         assert add_func.signature == "def add_numbers(a, b)"
         assert add_func.metadata["arg_count"] == 2
         assert add_func.metadata["has_docstring"] is False
+        assert add_func.summary is None  # No docstring
+        assert add_func.tokens > 0
+
+        # Check token info
+        assert result.token_info is not None
+        assert result.token_info["total_tokens"] > 0
+        assert result.token_info["code_tokens"] > 0
+        assert result.token_info["documentation_tokens"] > 0
 
     def test_analyze_async_functions(self):
-        """Test analysis of async functions."""
+        """Test analysis of async functions with docstrings."""
         code = '''
 import asyncio
 
@@ -224,9 +259,11 @@ async def legacy_async():
         assert "async def fetch_data" in fetch_func.signature
         assert fetch_func.metadata["is_async"] is True
         assert fetch_func.metadata["has_docstring"] is True
+        assert fetch_func.summary == "Fetch data from URL asynchronously."
+        assert fetch_func.tokens > 0
 
-    def test_analyze_classes(self):
-        """Test analysis of Python classes."""
+    def test_analyze_classes_with_docstrings(self):
+        """Test analysis of Python classes with docstring extraction."""
         code = '''
 class SimpleClass:
     """A simple class."""
@@ -264,12 +301,15 @@ class Person:
         assert simple_class.signature == "class SimpleClass"
         assert simple_class.metadata["base_classes"] == []
         assert simple_class.metadata["has_docstring"] is True
+        assert simple_class.summary == "A simple class."
+        assert simple_class.tokens > 0
 
         # Check inherited class
         inherited_class = next(c for c in classes if c.name == "InheritedClass")
         assert inherited_class.signature == "class InheritedClass(SimpleClass, dict)"
         assert "SimpleClass" in inherited_class.metadata["base_classes"]
         assert "dict" in inherited_class.metadata["base_classes"]
+        assert inherited_class.summary == "A class with inheritance."
         assert (
             len(inherited_class.metadata["methods"]) == 3
         )  # __init__, get_name, display_name
@@ -277,6 +317,66 @@ class Person:
         # Check decorated class
         person_class = next(c for c in classes if c.name == "Person")
         assert "dataclass" in person_class.metadata["decorators"]
+        assert person_class.summary == "A person with dataclass decorator."
+
+    def test_token_info_calculation(self):
+        """Test that token_info is properly calculated."""
+        code = '''#!/usr/bin/env python3
+"""Module docstring here."""
+
+# This is a comment
+def main():
+    """Main function."""
+    print("Hello, world!")  # Inline comment
+'''
+
+        input_data = self.create_plugin_input(code)
+        result = self.analyzer._analyze_python_code(input_data)
+
+        # Check token_info exists
+        assert result.token_info is not None
+        assert result.token_info["total_tokens"] > 0
+        assert result.token_info["code_tokens"] > 0
+        assert result.token_info["documentation_tokens"] > 0
+        assert result.token_info["comment_tokens"] > 0
+
+    def test_main_entry_detection(self):
+        """Test detection of if __name__ == "__main__": pattern."""
+        code = """def main():
+    print("Hello")
+
+if __name__ == "__main__":
+    main()
+"""
+
+        input_data = self.create_plugin_input(code)
+        result = self.analyzer._analyze_python_code(input_data)
+
+        # Check metadata for main check
+        assert result.metadata is not None
+        assert result.metadata.get("has_main_check") is True
+        assert result.metadata.get("module_docstring") is None  # No module docstring
+
+    def test_module_docstring_extraction(self):
+        """Test extraction of module-level docstrings."""
+        code = '''"""
+This is a module docstring.
+It provides overall documentation.
+"""
+
+def function():
+    pass
+'''
+
+        input_data = self.create_plugin_input(code)
+        result = self.analyzer._analyze_python_code(input_data)
+
+        # Check metadata for module docstring
+        assert result.metadata is not None
+        expected_docstring = (
+            "This is a module docstring.\nIt provides overall documentation."
+        )
+        assert result.metadata.get("module_docstring") == expected_docstring
 
     def test_analyze_function_calls(self):
         """Test extraction of function calls."""
@@ -350,7 +450,7 @@ def api_endpoint():
         assert "require_auth" in decorators
 
     def test_analyze_module_variables(self):
-        """Test extraction of module-level variables."""
+        """Test extraction of module-level variables with token counting."""
         code = """
 # Module-level constants
 VERSION = "1.0.0"
@@ -388,6 +488,10 @@ __dunder_var = "internal"
         all_names = [v.name for v in variables]
         assert "_private_var" not in all_names
         assert "__dunder_var" not in all_names
+
+        # All variables should have token counts
+        for var in variables:
+            assert var.tokens > 0
 
     def test_analyze_imports(self):
         """Test import analysis."""
@@ -482,6 +586,9 @@ def broken_function(
         assert result.exports == []
         assert "Syntax error" in result.file_summary
 
+        # Should still have token info (estimated from raw content)
+        assert result.token_info["total_tokens"] > 0
+
 
 class TestPythonEcosystemFiles:
     """Test analysis of Python ecosystem files like requirements.txt, setup.py, etc."""
@@ -501,8 +608,8 @@ class TestPythonEcosystemFiles:
             plugin_config=None,
         )
 
-    def test_analyze_requirements_txt(self):
-        """Test analysis of requirements.txt files."""
+    def test_analyze_requirements_txt_with_tokens(self):
+        """Test analysis of requirements.txt files with token counting."""
         content = """
 # Production dependencies
 requests==2.28.1
@@ -542,6 +649,13 @@ pytest>=7.0.0
         redis_dep = next(dep for dep in dependencies if dep.name == "redis")
         assert redis_dep.version is None  # >=4.0.0 doesn't give exact version
 
+        # Check token info
+        assert result.token_info is not None
+        assert result.token_info["total_tokens"] > 0
+        assert result.token_info["code_tokens"] == result.token_info["total_tokens"]
+        assert result.token_info["documentation_tokens"] == 0
+        assert result.token_info["comment_tokens"] == 0
+
     def test_analyze_setup_py(self):
         """Test analysis of setup.py files."""
         content = """
@@ -579,6 +693,10 @@ setup(
         # The setup.py analysis may not find traditional "elements"
         imports = [imp.module for imp in result.imports]
         assert "setuptools" in imports
+
+        # Check token info exists
+        assert result.token_info is not None
+        assert result.token_info["total_tokens"] > 0
 
     def test_analyze_pyproject_toml(self):
         """Test analysis of pyproject.toml files."""
@@ -630,6 +748,10 @@ numpy = ">=1.21.0"
         for dep in dependencies:
             assert dep.ecosystem == "pip"
             assert dep.dependency_type == "runtime"
+
+        # Check token info
+        assert result.token_info is not None
+        assert result.token_info["total_tokens"] > 0
 
     def test_analyze_complex_requirements(self):
         """Test analysis of complex requirements with various formats."""
@@ -757,11 +879,12 @@ class TestPythonAnalyzerIntegration:
         """Set up test fixtures."""
         self.analyzer = PythonAnalyzer()
 
-    def test_full_analysis_workflow(self):
-        """Test the complete analysis workflow for a Python file."""
+    def test_full_analysis_workflow_with_tokens(self):
+        """Test the complete analysis workflow for a Python file with token counting."""
         code = '''
 """
 A sample Python module for testing the analyzer.
+This module includes various Python constructs.
 """
 import os
 import sys
@@ -850,8 +973,27 @@ if __name__ == "__main__":
         assert "process_async" in result.exports
         assert "main" in result.exports
 
-        # Note: file_summary may be None if not implemented by the plugin
-        # The plugin focuses on structural analysis rather than summary generation
+        # Check token info
+        assert result.token_info is not None
+        assert result.token_info["total_tokens"] > 0
+        assert result.token_info["code_tokens"] > 0
+        assert result.token_info["documentation_tokens"] > 0
+
+        # Check metadata
+        assert result.metadata is not None
+        assert result.metadata["has_main_check"] is True
+        assert result.metadata["module_docstring"] is not None
+
+        # Verify docstrings were extracted
+        class_elements = [e for e in result.elements if e.element_type == "class"]
+        assert len(class_elements) > 0
+        data_processor = next(e for e in class_elements if e.name == "DataProcessor")
+        assert data_processor.summary == "Processes data from various sources."
+
+        # Check that all elements have token counts
+        for element in result.elements:
+            if element.element_type in ("function", "class"):
+                assert element.tokens > 0
 
     def test_plugin_communication_integration(self, monkeypatch, capsys):
         """Test the complete plugin communication workflow."""
@@ -930,6 +1072,14 @@ if __name__ == "__main__":
         assert len(cached_result["elements"]) > 0
         assert any(e["name"] == "greet" for e in cached_result["elements"])
 
+        # Check token info in cached result
+        assert "token_info" in cached_result
+        assert cached_result["token_info"]["total_tokens"] > 0
+
+        # Check that the greet function has its docstring
+        greet_elem = next(e for e in cached_result["elements"] if e["name"] == "greet")
+        assert greet_elem["summary"] == "Greet someone by name."
+
     def test_get_info_integration(self, monkeypatch, capsys):
         """Test the get_info message workflow."""
         analyzer = PythonAnalyzer()
@@ -948,7 +1098,7 @@ if __name__ == "__main__":
 
         assert response["status"] == "info"
         assert response["name"] == "python"
-        assert response["version"] == "1.0.0"
+        assert response["version"] == "2.0.0"  # Updated version
         assert ".py" in response["supported_extensions"]
         assert "requirements.txt" in response["supported_filenames"]
 
@@ -978,6 +1128,9 @@ class TestPythonAnalyzerEdgeCases:
         assert result.imports == []
         assert result.exports == []
         assert result.relationships == []
+
+        # Should still have token info (all zeros)
+        assert result.token_info["total_tokens"] == 0
 
     def test_comments_only_file(self):
         """Test analysis of files with only comments."""
@@ -1009,6 +1162,14 @@ but there's no code below it.
         assert result.elements == []
         assert result.imports == []
         assert result.exports == []
+
+        # Should have token info
+        assert result.token_info["total_tokens"] > 0
+        assert result.token_info["documentation_tokens"] >= 0  # Module docstring
+        assert result.token_info["comment_tokens"] > 0  # Comments
+
+        # Should extract module docstring
+        assert result.metadata["module_docstring"] is not None
 
     def test_malformed_requirements_txt(self):
         """Test handling of malformed requirements.txt files."""
@@ -1046,6 +1207,9 @@ package===1.0.0
 
         # Should handle the file without crashing
         assert isinstance(result, PluginOutput)
+
+        # Should have token info
+        assert result.token_info["total_tokens"] > 0
 
     def test_unicode_and_encoding_handling(self):
         """Test handling of Unicode characters in Python code."""
@@ -1089,12 +1253,12 @@ class UnicodeClass:
         assert "unicode_function" in elements_by_name
         assert "UnicodeClass" in elements_by_name
 
-        # Should preserve Unicode in docstrings and names (if summary is available)
+        # Should preserve Unicode in docstrings
         unicode_func = elements_by_name["unicode_function"]
-        if unicode_func.summary:
-            assert "λ" in unicode_func.summary or "Unicode" in unicode_func.summary
-        # If no summary, just check that the function was parsed correctly
-        assert unicode_func.name == "unicode_function"
+        assert unicode_func.summary == "Function with Unicode in docstring: λ function."
+
+        unicode_class = elements_by_name["UnicodeClass"]
+        assert unicode_class.summary == "A class with Unicode: ∑∞"
 
     def test_very_long_file(self):
         """Test handling of very long Python files."""
@@ -1134,6 +1298,11 @@ def function_{i}():
         function_names = [e.name for e in function_elements]
         for i in range(100):
             assert f"function_{i}" in function_names
+
+        # All functions should have docstrings
+        for func in function_elements:
+            assert func.summary is not None
+            assert func.tokens > 0
 
     def test_deeply_nested_code(self):
         """Test handling of deeply nested Python code structures."""
@@ -1196,6 +1365,11 @@ class OuterClass:
         ]
         assert len(complex_methods) > 0  # Should find some complex methods
 
+        # Should extract docstrings from nested elements
+        all_summaries = [e.summary for e in result.elements if e.summary]
+        assert "Outer class with nested structures." in all_summaries
+        assert "Very deeply nested function." in all_summaries
+
     def test_plugin_configuration_handling(self):
         """Test handling of plugin configuration."""
         code = '''
@@ -1226,6 +1400,10 @@ def test_function():
         # (Note: Current implementation doesn't use config, but shouldn't crash)
         assert isinstance(result, PluginOutput)
         assert len(result.elements) > 0
+
+        # Function should have its docstring
+        func = result.elements[0]
+        assert func.summary == "A test function."
 
 
 if __name__ == "__main__":
