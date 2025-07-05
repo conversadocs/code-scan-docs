@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Base class for CSD plugins.
+Enhanced base class for CSD plugins with token counting support.
 All language plugins should inherit from this class.
 """
 
@@ -25,10 +25,11 @@ class CodeElement:
     signature: Optional[str] = None
     line_start: int = 0
     line_end: int = 0
-    summary: Optional[str] = None
+    summary: Optional[str] = None  # Should contain docstring/comment summary
     complexity_score: Optional[int] = None
     calls: List[str] = None
     metadata: Dict[str, Any] = None
+    tokens: Optional[int] = None  # NEW: Token count for this element
 
     def __post_init__(self):
         """Initialize default values for calls and metadata."""
@@ -91,6 +92,12 @@ class PluginOutput:
     file_summary: Optional[str] = None
     processing_time_ms: int = 0
     plugin_version: str = "1.0.0"
+
+    # NEW: Token information for the file
+    token_info: Optional[Dict[str, int]] = None
+
+    # NEW: Additional metadata (e.g., has_main_check for Python)
+    metadata: Optional[Dict[str, Any]] = None
 
 
 @dataclass
@@ -171,8 +178,12 @@ class BaseAnalyzer(ABC):
         """Write analysis result to cache file and return the filename."""
         cache_path = Path(cache_dir) / cache_filename
         cache_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Convert dataclass to dict for JSON serialization
+        result_dict = asdict(result)
+
         with open(cache_path, "w", encoding="utf-8") as f:
-            json.dump(asdict(result), f, indent=2, ensure_ascii=False)
+            json.dump(result_dict, f, indent=2, ensure_ascii=False)
         return cache_filename
 
     def run(self):
@@ -392,6 +403,11 @@ def detect_import_type(module_name: str, project_root: str, file_path: str) -> s
         "csv",
         "xml",
         "sqlite3",
+        "ast",
+        "hashlib",
+        "io",
+        "unittest",
+        "traceback",
     }
 
     root_module = module_name.split(".")[0]

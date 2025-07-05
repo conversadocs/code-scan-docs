@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Python code analyzer plugin for CSD.
-Analyzes Python files including .py files and Python ecosystem files.
+Enhanced Python code analyzer plugin for CSD.
+Now includes docstring extraction and token counting.
 """
 
 import ast
@@ -10,7 +10,7 @@ import sys
 import typing
 import re
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Dict
 from csd_plugin_sdk import (
     BaseAnalyzer,
     CodeElement,
@@ -26,6 +26,34 @@ from csd_plugin_sdk import (
 typing.cast(io.TextIOWrapper, sys.stdout).reconfigure(line_buffering=True)
 
 
+def estimate_tokens(text: str) -> int:
+    """
+    Estimate the number of tokens in text.
+    Uses ~4 characters per token as a rough approximation.
+    """
+    if not text:
+        return 0
+    return max(1, len(text) // 4)
+
+
+def estimate_code_tokens(code: str) -> int:
+    """
+    More accurate token estimation for code.
+    Splits by whitespace and common delimiters.
+    """
+    if not code:
+        return 0
+
+    # Split by whitespace and common delimiters
+    tokens = re.split(r'[\s\(\)\{\}\[\]<>,.;:"\'\`|\\\/\-+=*&%$#@!?~]+', code)
+    tokens = [t for t in tokens if t]
+
+    # Count delimiters as partial tokens
+    delimiters = re.findall(r'[\(\)\{\}\[\]<>,.;:"\'\`|\\\/\-+=*&%$#@!?~]', code)
+
+    return max(1, len(tokens) + len(delimiters) // 2)
+
+
 class PythonAnalyzer(BaseAnalyzer):
     """Analyzer for Python files and Python ecosystem files."""
 
@@ -33,7 +61,7 @@ class PythonAnalyzer(BaseAnalyzer):
         """Initialize the PythonAnalyzer instance."""
         super().__init__()
         self.name = "python"
-        self.version = "1.0.0"
+        self.version = "2.0.0"  # Bumped version for new features
         self.supported_extensions = [".py"]
         self.supported_filenames = [
             "requirements.txt",
@@ -103,12 +131,24 @@ class PythonAnalyzer(BaseAnalyzer):
                 relationships=[],
                 external_dependencies=[],
                 file_summary=f"Syntax error in Python file: {e}",
+                token_info={
+                    "total_tokens": estimate_tokens(input_data.content),
+                    "code_tokens": 0,
+                    "documentation_tokens": 0,
+                    "comment_tokens": 0,
+                },
             )
 
         elements = self._extract_elements(tree, input_data.content)
         imports = self._extract_imports(tree, input_data)
         exports = self._extract_exports(tree)
         relationships = self._extract_relationships(imports, input_data)
+
+        # Calculate token information
+        token_info = self._calculate_token_info(input_data.content, elements)
+
+        # Check for main entry point
+        has_main_check = self._check_for_main_entry(tree)
 
         return PluginOutput(
             file_path=input_data.file_path,
@@ -118,7 +158,57 @@ class PythonAnalyzer(BaseAnalyzer):
             exports=exports,
             relationships=relationships,
             external_dependencies=[],
+            token_info=token_info,
+            metadata={
+                "has_main_check": has_main_check,
+                "module_docstring": ast.get_docstring(tree),
+            },
         )
+
+    def _calculate_token_info(
+        self, content: str, elements: List[CodeElement]
+    ) -> Dict[str, int]:
+        """Calculate token information for the file."""
+        total_tokens = estimate_code_tokens(content)
+
+        # Count documentation tokens from docstrings
+        doc_tokens = 0
+        for element in elements:
+            if element.summary:
+                doc_tokens += estimate_tokens(element.summary)
+
+        # Extract and count comment tokens
+        comment_tokens = 0
+        for line in content.split("\n"):
+            stripped = line.strip()
+            if stripped.startswith("#") and not stripped.startswith("#!"):
+                comment_tokens += estimate_tokens(stripped[1:])
+
+        # Code tokens are the remaining tokens
+        code_tokens = max(0, total_tokens - doc_tokens - comment_tokens)
+
+        return {
+            "total_tokens": total_tokens,
+            "code_tokens": code_tokens,
+            "documentation_tokens": doc_tokens,
+            "comment_tokens": comment_tokens,
+        }
+
+    def _check_for_main_entry(self, tree: ast.AST) -> bool:
+        """Check if the file has a if __name__ == "__main__": block."""
+        for node in ast.walk(tree):
+            if isinstance(node, ast.If):
+                # Check for if __name__ == "__main__":
+                if (
+                    isinstance(node.test, ast.Compare)
+                    and isinstance(node.test.left, ast.Name)
+                    and node.test.left.id == "__name__"
+                    and len(node.test.comparators) == 1
+                    and isinstance(node.test.comparators[0], ast.Constant)
+                    and node.test.comparators[0].value == "__main__"
+                ):
+                    return True
+        return False
 
     def _extract_elements(self, tree: ast.AST, content: str) -> List[CodeElement]:
         """Extract code elements (functions, classes, etc.) from AST."""
@@ -140,6 +230,21 @@ class PythonAnalyzer(BaseAnalyzer):
 
         return elements
 
+    def _extract_docstring_and_tokens(
+        self, node: ast.AST, content: str
+    ) -> Tuple[Optional[str], int]:
+        """Extract docstring from a node and calculate its token count."""
+        # Only try to get docstring from supported node types
+        if isinstance(
+            node, (ast.AsyncFunctionDef, ast.FunctionDef, ast.ClassDef, ast.Module)
+        ):
+            docstring = ast.get_docstring(node)
+        else:
+            docstring = None
+
+        tokens = estimate_tokens(docstring) if docstring else 0
+        return docstring, tokens
+
     def _create_function_element(
         self, node: ast.FunctionDef, content: str
     ) -> CodeElement:
@@ -155,19 +260,32 @@ class PythonAnalyzer(BaseAnalyzer):
 
         decorators = [self._get_decorator_name(d) for d in node.decorator_list]
 
+        # Extract docstring as summary
+        docstring, doc_tokens = self._extract_docstring_and_tokens(node, content)
+
+        # Calculate tokens for this element
+        element_lines = content.split("\n")[
+            node.lineno - 1 : (node.end_lineno or node.lineno)
+        ]
+        element_content = "\n".join(element_lines)
+        element_tokens = estimate_code_tokens(element_content)
+
         return CodeElement(
             element_type="function",
             name=node.name,
             signature=signature,
             line_start=node.lineno,
             line_end=node.end_lineno or node.lineno,
+            summary=docstring,  # Now populated with docstring
             complexity_score=complexity,
             calls=calls,
+            tokens=element_tokens,
             metadata={
                 "is_async": False,
                 "decorators": decorators,
                 "arg_count": len(args),
-                "has_docstring": ast.get_docstring(node) is not None,
+                "has_docstring": docstring is not None,
+                "docstring_tokens": doc_tokens,
             },
         )
 
@@ -184,19 +302,32 @@ class PythonAnalyzer(BaseAnalyzer):
         )
         decorators = [self._get_decorator_name(d) for d in node.decorator_list]
 
+        # Extract docstring as summary
+        docstring, doc_tokens = self._extract_docstring_and_tokens(node, content)
+
+        # Calculate tokens for this element
+        element_lines = content.split("\n")[
+            node.lineno - 1 : (node.end_lineno or node.lineno)
+        ]
+        element_content = "\n".join(element_lines)
+        element_tokens = estimate_code_tokens(element_content)
+
         return CodeElement(
             element_type="function",
             name=node.name,
             signature=signature,
             line_start=node.lineno,
             line_end=node.end_lineno or node.lineno,
+            summary=docstring,  # Now populated with docstring
             complexity_score=complexity,
             calls=calls,
+            tokens=element_tokens,
             metadata={
                 "is_async": True,
                 "decorators": decorators,
                 "arg_count": len(args),
-                "has_docstring": ast.get_docstring(node) is not None,
+                "has_docstring": docstring is not None,
+                "docstring_tokens": doc_tokens,
             },
         )
 
@@ -214,18 +345,31 @@ class PythonAnalyzer(BaseAnalyzer):
 
         decorators = [self._get_decorator_name(d) for d in node.decorator_list]
 
+        # Extract docstring as summary
+        docstring, doc_tokens = self._extract_docstring_and_tokens(node, content)
+
+        # Calculate tokens for this element
+        element_lines = content.split("\n")[
+            node.lineno - 1 : (node.end_lineno or node.lineno)
+        ]
+        element_content = "\n".join(element_lines)
+        element_tokens = estimate_code_tokens(element_content)
+
         return CodeElement(
             element_type="class",
             name=node.name,
             signature=signature,
             line_start=node.lineno,
             line_end=node.end_lineno or node.lineno,
+            summary=docstring,  # Now populated with docstring
             calls=methods,
+            tokens=element_tokens,
             metadata={
                 "base_classes": bases,
                 "methods": methods,
                 "decorators": decorators,
-                "has_docstring": ast.get_docstring(node) is not None,
+                "has_docstring": docstring is not None,
+                "docstring_tokens": doc_tokens,
             },
         )
 
@@ -236,22 +380,34 @@ class PythonAnalyzer(BaseAnalyzer):
         if isinstance(node, ast.Assign):
             if len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
                 var_name = node.targets[0].id
+
+                # Calculate tokens for this line
+                line_content = content.split("\n")[node.lineno - 1]
+                tokens = estimate_code_tokens(line_content)
+
                 if not var_name.startswith("_") and var_name.isupper():
                     return CodeElement(
                         element_type="variable",
                         name=var_name,
                         line_start=node.lineno,
                         line_end=node.lineno,
+                        tokens=tokens,
                         metadata={"is_constant": True},
                     )
         elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
             var_name = node.target.id
+
+            # Calculate tokens for this line
+            line_content = content.split("\n")[node.lineno - 1]
+            tokens = estimate_code_tokens(line_content)
+
             if not var_name.startswith("_"):
                 return CodeElement(
                     element_type="variable",
                     name=var_name,
                     line_start=node.lineno,
                     line_end=node.lineno,
+                    tokens=tokens,
                     metadata={"has_type_annotation": True},
                 )
 
@@ -379,6 +535,7 @@ class PythonAnalyzer(BaseAnalyzer):
     def _analyze_requirements_txt(self, input_data: PluginInput) -> PluginOutput:
         """Analyze a requirements.txt file."""
         dependencies = []
+        content_tokens = estimate_tokens(input_data.content)
 
         for line_num, line in enumerate(input_data.content.split("\n"), 1):
             line = line.strip()
@@ -421,6 +578,12 @@ class PythonAnalyzer(BaseAnalyzer):
             relationships=[],
             external_dependencies=dependencies,
             file_summary=f"Python requirements with {len(dependencies)} dependencies",
+            token_info={
+                "total_tokens": content_tokens,
+                "code_tokens": content_tokens,
+                "documentation_tokens": 0,
+                "comment_tokens": 0,
+            },
         )
 
     def _analyze_setup_py(self, input_data: PluginInput) -> PluginOutput:
@@ -469,6 +632,7 @@ class PythonAnalyzer(BaseAnalyzer):
     def _analyze_pyproject_toml(self, input_data: PluginInput) -> PluginOutput:
         """Analyze a pyproject.toml file."""
         dependencies = []
+        content_tokens = estimate_tokens(input_data.content)
 
         lines = input_data.content.split("\n")
         in_dependencies = False
@@ -508,6 +672,12 @@ class PythonAnalyzer(BaseAnalyzer):
             relationships=[],
             external_dependencies=dependencies,
             file_summary=f"Python project config with {len(dependencies)} dependencies",
+            token_info={
+                "total_tokens": content_tokens,
+                "code_tokens": content_tokens,
+                "documentation_tokens": 0,
+                "comment_tokens": 0,
+            },
         )
 
     def _get_decorator_name(self, decorator: ast.AST) -> str:

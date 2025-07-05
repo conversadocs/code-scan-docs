@@ -3,11 +3,12 @@ use tempfile::TempDir;
 
 // Import the modules we're testing
 use csd::core::matrix::{
-    CodeElement, DependencyType, ElementType, ExternalDependency, FileNode, Import, ImportType,
-    ProjectMatrix, Relationship, RelationshipType,
+    estimate_code_tokens, estimate_tokens, CodeElement, DependencyType, ElementType,
+    EntrypointInfo, ExternalDependency, FileNode, Import, ImportType, ProjectMatrix, ProjectType,
+    Relationship, RelationshipType, TokenInfo,
 };
 
-// Helper function to create a test FileNode
+// Helper function to create a test FileNode with token information
 pub fn create_test_file_node(path: &str, plugin: &str) -> FileNode {
     FileNode {
         path: PathBuf::from(path),
@@ -21,6 +22,12 @@ pub fn create_test_file_node(path: &str, plugin: &str) -> FileNode {
         imports: vec![],
         exports: vec![],
         file_summary: Some("Test file summary".to_string()),
+        token_info: TokenInfo {
+            total_tokens: 256,
+            code_tokens: 200,
+            documentation_tokens: 40,
+            comment_tokens: 16,
+        },
     }
 }
 
@@ -48,10 +55,20 @@ mod matrix_creation_tests {
         assert_eq!(matrix.metadata.project_root, project_root);
         assert_eq!(matrix.metadata.total_files, 0);
         assert_eq!(matrix.metadata.total_size_bytes, 0);
+        assert_eq!(matrix.metadata.total_tokens, 0);
         assert!(matrix.files.is_empty());
         assert!(matrix.relationships.is_empty());
         assert!(matrix.external_dependencies.is_empty());
         assert_eq!(matrix.metadata.csd_version, env!("CARGO_PKG_VERSION"));
+
+        // Check new project info fields
+        assert!(matrix.project_info.entrypoints.is_empty());
+        assert!(matches!(
+            matrix.project_info.project_type,
+            ProjectType::Unknown
+        ));
+        assert_eq!(matrix.project_info.main_language, "");
+        assert_eq!(matrix.project_info.token_summary.total_tokens, 0);
     }
 
     #[test]
@@ -63,8 +80,14 @@ mod matrix_creation_tests {
 
         assert_eq!(matrix.metadata.total_files, 1);
         assert_eq!(matrix.metadata.total_size_bytes, 1024);
+        assert_eq!(matrix.metadata.total_tokens, 256);
         assert!(matrix.metadata.plugins_used.contains(&"rust".to_string()));
         assert!(matrix.files.contains_key(&PathBuf::from("src/main.rs")));
+
+        // Check token tracking
+        assert_eq!(matrix.project_info.token_summary.total_tokens, 256);
+        assert_eq!(matrix.project_info.token_summary.code_tokens, 200);
+        assert_eq!(matrix.project_info.token_summary.documentation_tokens, 40);
     }
 
     #[test]
@@ -78,9 +101,60 @@ mod matrix_creation_tests {
 
         assert_eq!(matrix.metadata.total_files, 2);
         assert_eq!(matrix.metadata.total_size_bytes, 2048);
+        assert_eq!(matrix.metadata.total_tokens, 512);
         assert_eq!(matrix.metadata.plugins_used.len(), 2);
         assert!(matrix.metadata.plugins_used.contains(&"rust".to_string()));
         assert!(matrix.metadata.plugins_used.contains(&"python".to_string()));
+    }
+
+    #[test]
+    fn test_finalize_detects_entrypoints() {
+        let mut matrix = ProjectMatrix::new(PathBuf::from("/test"));
+
+        // Add main.rs as an entrypoint
+        let main_file = create_test_file_node("src/main.rs", "rust");
+        matrix.add_file(main_file);
+
+        // Add lib.rs as another entrypoint
+        let lib_file = create_test_file_node("src/lib.rs", "rust");
+        matrix.add_file(lib_file);
+
+        // Add a regular file
+        let util_file = create_test_file_node("src/utils.rs", "rust");
+        matrix.add_file(util_file);
+
+        // Finalize to detect entrypoints
+        matrix.finalize();
+
+        // Check entrypoints were detected
+        assert_eq!(matrix.project_info.entrypoints.len(), 2);
+
+        // Check that main.rs was detected
+        let main_entry = matrix
+            .project_info
+            .entrypoints
+            .iter()
+            .find(|e| e.file_path == PathBuf::from("src/main.rs"))
+            .expect("main.rs should be detected as entrypoint");
+        assert_eq!(main_entry.entrypoint_type, "cli");
+        assert_eq!(main_entry.confidence, 1.0);
+
+        // Check that lib.rs was detected
+        let lib_entry = matrix
+            .project_info
+            .entrypoints
+            .iter()
+            .find(|e| e.file_path == PathBuf::from("src/lib.rs"))
+            .expect("lib.rs should be detected as entrypoint");
+        assert_eq!(lib_entry.entrypoint_type, "lib");
+        assert_eq!(lib_entry.confidence, 1.0);
+
+        // Check project type
+        assert!(matches!(
+            matrix.project_info.project_type,
+            ProjectType::Mixed
+        ));
+        assert_eq!(matrix.project_info.main_language, "rust");
     }
 
     #[test]
@@ -115,6 +189,93 @@ mod matrix_creation_tests {
         assert_eq!(added_dep.name, "serde");
         assert_eq!(added_dep.version, Some("1.0.0".to_string()));
         assert_eq!(added_dep.ecosystem, "cargo");
+    }
+}
+
+#[cfg(test)]
+mod token_management_tests {
+    use super::*;
+
+    #[test]
+    fn test_token_estimation() {
+        let text = "Hello, world!";
+        let tokens = estimate_tokens(text);
+        assert!(tokens > 0);
+        assert_eq!(tokens, 4); // ~13 chars / 4 = ~3.25, rounded up to 4
+
+        let code = "fn main() { println!(\"Hello\"); }";
+        let code_tokens = estimate_code_tokens(code);
+        assert!(code_tokens > 0);
+        // Should account for delimiters and tokens
+    }
+
+    #[test]
+    fn test_get_files_by_token_count() {
+        let mut matrix = ProjectMatrix::new(PathBuf::from("/test"));
+
+        // Create files with different token counts
+        let mut large_file = create_test_file_node("large.rs", "rust");
+        large_file.token_info.total_tokens = 1000;
+
+        let mut medium_file = create_test_file_node("medium.rs", "rust");
+        medium_file.token_info.total_tokens = 500;
+
+        let mut small_file = create_test_file_node("small.rs", "rust");
+        small_file.token_info.total_tokens = 100;
+
+        matrix.add_file(large_file);
+        matrix.add_file(medium_file);
+        matrix.add_file(small_file);
+
+        let sorted_files = matrix.get_files_by_token_count();
+
+        // Should be sorted by token count descending
+        assert_eq!(sorted_files.len(), 3);
+        assert_eq!(sorted_files[0].1.token_info.total_tokens, 1000);
+        assert_eq!(sorted_files[1].1.token_info.total_tokens, 500);
+        assert_eq!(sorted_files[2].1.token_info.total_tokens, 100);
+    }
+
+    #[test]
+    fn test_token_budget_info() {
+        let mut matrix = ProjectMatrix::new(PathBuf::from("/test"));
+
+        // Create files with specific token counts
+        let mut file1 = create_test_file_node("file1.rs", "rust");
+        file1.token_info.total_tokens = 400;
+
+        let mut file2 = create_test_file_node("file2.rs", "rust");
+        file2.token_info.total_tokens = 300;
+
+        let mut file3 = create_test_file_node("file3.rs", "rust");
+        file3.token_info.total_tokens = 500;
+
+        matrix.add_file(file1);
+        matrix.add_file(file2);
+        matrix.add_file(file3);
+
+        // Get budget info with limit of 800 tokens
+        let budget_info = matrix.get_token_budget_info(800);
+
+        assert_eq!(budget_info.max_tokens, 800);
+        // Files are sorted by token count descending, so file3 (500) + file2 (300) = 800
+        assert_eq!(budget_info.used_tokens, 800);
+        assert_eq!(budget_info.remaining_tokens, 0);
+        assert_eq!(budget_info.included_files.len(), 2);
+        assert_eq!(budget_info.excluded_files.len(), 1);
+
+        // The 400-token file should be excluded (since 500 + 300 = 800 exactly)
+        assert!(budget_info
+            .excluded_files
+            .contains(&PathBuf::from("file1.rs")));
+
+        // The included files should be file3 and file2
+        assert!(budget_info
+            .included_files
+            .contains(&PathBuf::from("file3.rs")));
+        assert!(budget_info
+            .included_files
+            .contains(&PathBuf::from("file2.rs")));
     }
 }
 
@@ -214,6 +375,7 @@ mod matrix_queries_tests {
 
         assert_eq!(metrics.total_files, 4);
         assert_eq!(metrics.total_relationships, 3);
+        assert_eq!(metrics.total_tokens, 1024); // 4 files * 256 tokens each
         assert_eq!(metrics.languages.len(), 2);
         assert!(metrics.languages.contains(&"rust".to_string()));
         assert!(metrics.languages.contains(&"python".to_string()));
@@ -246,6 +408,9 @@ mod matrix_persistence_tests {
         original_matrix.add_file(file_node);
         original_matrix.add_relationship(relationship);
 
+        // Finalize to ensure all fields are populated
+        original_matrix.finalize();
+
         // Save the matrix
         original_matrix
             .save(&matrix_path)
@@ -269,6 +434,10 @@ mod matrix_persistence_tests {
             loaded_matrix.metadata.total_files,
             original_matrix.metadata.total_files
         );
+        assert_eq!(
+            loaded_matrix.metadata.total_tokens,
+            original_matrix.metadata.total_tokens
+        );
         assert_eq!(loaded_matrix.files.len(), original_matrix.files.len());
         assert_eq!(
             loaded_matrix.relationships.len(),
@@ -279,6 +448,75 @@ mod matrix_persistence_tests {
         assert!(loaded_matrix
             .files
             .contains_key(&PathBuf::from("src/main.rs")));
+
+        // Verify token info is preserved
+        let loaded_file = loaded_matrix
+            .files
+            .get(&PathBuf::from("src/main.rs"))
+            .unwrap();
+        assert_eq!(loaded_file.token_info.total_tokens, 256);
+    }
+
+    #[tokio::test]
+    async fn test_load_subset() {
+        // Create a temporary directory for testing
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let matrix_path = temp_dir.path().join("test_matrix.json");
+
+        // Create and populate a full matrix
+        let mut original_matrix = ProjectMatrix::new(PathBuf::from("/test/project"));
+
+        let files = vec![
+            create_test_file_node("src/main.rs", "rust"),
+            create_test_file_node("src/lib.rs", "rust"),
+            create_test_file_node("src/utils.rs", "rust"),
+        ];
+
+        for file in files {
+            original_matrix.add_file(file);
+        }
+
+        // Add relationships
+        original_matrix.add_relationship(create_test_relationship("src/main.rs", "src/lib.rs"));
+        original_matrix.add_relationship(create_test_relationship("src/lib.rs", "src/utils.rs"));
+
+        original_matrix.finalize();
+
+        // Save the matrix
+        original_matrix
+            .save(&matrix_path)
+            .await
+            .expect("Failed to save matrix");
+
+        // Load a subset containing only main.rs and lib.rs
+        let subset_files = vec![PathBuf::from("src/main.rs"), PathBuf::from("src/lib.rs")];
+
+        let subset_matrix = ProjectMatrix::load_subset(&matrix_path, &subset_files)
+            .await
+            .expect("Failed to load subset");
+
+        // Verify subset contains only requested files
+        assert_eq!(subset_matrix.files.len(), 2);
+        assert!(subset_matrix
+            .files
+            .contains_key(&PathBuf::from("src/main.rs")));
+        assert!(subset_matrix
+            .files
+            .contains_key(&PathBuf::from("src/lib.rs")));
+        assert!(!subset_matrix
+            .files
+            .contains_key(&PathBuf::from("src/utils.rs")));
+
+        // Verify only relationships between included files are preserved
+        assert_eq!(subset_matrix.relationships.len(), 1);
+        assert_eq!(
+            subset_matrix.relationships[0].from_file,
+            PathBuf::from("src/main.rs")
+        );
+        assert_eq!(
+            subset_matrix.relationships[0].to_file,
+            PathBuf::from("src/lib.rs")
+        );
     }
 }
 
@@ -314,6 +552,9 @@ mod matrix_summary_tests {
         };
         matrix.add_external_dependency(dependency);
 
+        // Finalize to calculate token averages
+        matrix.finalize();
+
         // This should not panic
         matrix.print_summary();
     }
@@ -338,6 +579,7 @@ mod data_structure_tests {
                 "is_async": false,
                 "visibility": "public"
             }),
+            tokens: 150,
         };
 
         assert_eq!(element.name, "test_function");
@@ -346,6 +588,7 @@ mod data_structure_tests {
         assert_eq!(element.complexity_score, Some(5));
         assert_eq!(element.calls.len(), 1);
         assert!(element.calls.contains(&"helper_function".to_string()));
+        assert_eq!(element.tokens, 150);
     }
 
     #[test]
@@ -423,6 +666,12 @@ mod data_structure_tests {
             imports: vec![],
             exports: vec!["main".to_string()],
             file_summary: Some("Main application file".to_string()),
+            token_info: TokenInfo {
+                total_tokens: 512,
+                code_tokens: 400,
+                documentation_tokens: 80,
+                comment_tokens: 32,
+            },
         };
 
         assert_eq!(file_node.path, PathBuf::from("/project/src/main.rs"));
@@ -437,6 +686,37 @@ mod data_structure_tests {
             file_node.file_summary,
             Some("Main application file".to_string())
         );
+        assert_eq!(file_node.token_info.total_tokens, 512);
+    }
+
+    #[test]
+    fn test_token_info_creation() {
+        let token_info = TokenInfo {
+            total_tokens: 1000,
+            code_tokens: 800,
+            documentation_tokens: 150,
+            comment_tokens: 50,
+        };
+
+        assert_eq!(token_info.total_tokens, 1000);
+        assert_eq!(token_info.code_tokens, 800);
+        assert_eq!(token_info.documentation_tokens, 150);
+        assert_eq!(token_info.comment_tokens, 50);
+    }
+
+    #[test]
+    fn test_entrypoint_info_creation() {
+        let entrypoint = EntrypointInfo {
+            file_path: PathBuf::from("src/main.rs"),
+            entrypoint_type: "cli".to_string(),
+            confidence: 0.95,
+            reason: "Standard Rust binary entrypoint".to_string(),
+        };
+
+        assert_eq!(entrypoint.file_path, PathBuf::from("src/main.rs"));
+        assert_eq!(entrypoint.entrypoint_type, "cli");
+        assert_eq!(entrypoint.confidence, 0.95);
+        assert_eq!(entrypoint.reason, "Standard Rust binary entrypoint");
     }
 }
 
@@ -508,5 +788,23 @@ mod enum_variant_tests {
         assert_eq!(variants.len(), 4);
         assert!(variants.contains(&DependencyType::Runtime));
         assert!(variants.contains(&DependencyType::Development));
+    }
+
+    #[test]
+    fn test_project_type_variants() {
+        let variants = [
+            ProjectType::Binary,
+            ProjectType::Library,
+            ProjectType::WebApplication,
+            ProjectType::Mixed,
+            ProjectType::Unknown,
+        ];
+
+        assert_eq!(variants.len(), 5);
+        assert!(matches!(variants[0], ProjectType::Binary));
+        assert!(matches!(variants[1], ProjectType::Library));
+        assert!(matches!(variants[2], ProjectType::WebApplication));
+        assert!(matches!(variants[3], ProjectType::Mixed));
+        assert!(matches!(variants[4], ProjectType::Unknown));
     }
 }

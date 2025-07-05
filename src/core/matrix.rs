@@ -1,6 +1,7 @@
+// src/core/matrix.rs - Enhanced version with token counting and entrypoint detection
 use anyhow::Result;
 use chrono::{DateTime, Utc};
-use log::debug;
+use log::{debug, info};
 use petgraph::graph::NodeIndex;
 use petgraph::visit::EdgeRef;
 use petgraph::{Directed, Graph};
@@ -17,6 +18,9 @@ pub struct ProjectMatrix {
     pub relationships: Vec<Relationship>,
     pub external_dependencies: Vec<ExternalDependency>,
 
+    // NEW: Project structure analysis
+    pub project_info: ProjectInfo,
+
     // Transient data - rebuilt on load
     #[serde(skip)]
     graph: Option<ProjectGraph>,
@@ -31,7 +35,44 @@ pub struct ProjectMetadata {
     pub csd_version: String,
     pub total_files: usize,
     pub total_size_bytes: u64,
+    pub total_tokens: u64, // NEW: Total estimated tokens across all files
     pub plugins_used: Vec<String>,
+}
+
+// NEW: Project-level information
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProjectInfo {
+    pub entrypoints: Vec<EntrypointInfo>,
+    pub project_type: ProjectType,
+    pub main_language: String,
+    pub token_summary: TokenSummary,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EntrypointInfo {
+    pub file_path: PathBuf,
+    pub entrypoint_type: String, // "main", "lib", "cli", "web", etc.
+    pub confidence: f32,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum ProjectType {
+    Binary,         // Executable application
+    Library,        // Library/package
+    WebApplication, // Web server/API
+    Mixed,          // Multiple project types
+    Unknown,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TokenSummary {
+    pub total_tokens: u64,
+    pub code_tokens: u64,
+    pub documentation_tokens: u64,
+    pub average_tokens_per_file: f64,
+    pub largest_file_tokens: u64,
+    pub largest_file_path: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -47,6 +88,18 @@ pub struct FileNode {
     pub imports: Vec<Import>,
     pub exports: Vec<String>,
     pub file_summary: Option<String>,
+
+    // NEW: Token information
+    pub token_info: TokenInfo,
+}
+
+// NEW: Token information for files and elements
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TokenInfo {
+    pub total_tokens: u64,
+    pub code_tokens: u64,
+    pub documentation_tokens: u64,
+    pub comment_tokens: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -56,10 +109,13 @@ pub struct CodeElement {
     pub signature: Option<String>,
     pub line_start: u32,
     pub line_end: u32,
-    pub summary: Option<String>, // LLM-generated summary
+    pub summary: Option<String>, // Now populated from docstrings/comments
     pub complexity_score: Option<u32>,
-    pub calls: Vec<String>,          // Functions/methods this element calls
-    pub metadata: serde_json::Value, // Plugin-specific data
+    pub calls: Vec<String>,
+    pub metadata: serde_json::Value,
+
+    // NEW: Token count for this element
+    pub tokens: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -79,7 +135,7 @@ pub enum ElementType {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Import {
     pub module: String,
-    pub items: Vec<String>, // Specific items imported, if any
+    pub items: Vec<String>,
     pub alias: Option<String>,
     pub line_number: u32,
     pub import_type: ImportType,
@@ -87,10 +143,10 @@ pub struct Import {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum ImportType {
-    Standard,   // from standard library
-    ThirdParty, // from external dependency
-    Local,      // from project files
-    Relative,   // relative import
+    Standard,
+    ThirdParty,
+    Local,
+    Relative,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -100,18 +156,18 @@ pub struct Relationship {
     pub relationship_type: RelationshipType,
     pub details: String,
     pub line_number: Option<u32>,
-    pub strength: f32, // 0.0 to 1.0 - how strong is this relationship
+    pub strength: f32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum RelationshipType {
     Import,
-    Call,          // Function call across files
-    Inheritance,   // Class inheritance
-    Configuration, // Config file affects code file
-    Test,          // Test file tests source file
-    Documentation, // Doc file documents source file
-    Build,         // Build file affects source file
+    Call,
+    Inheritance,
+    Configuration,
+    Test,
+    Documentation,
+    Build,
 }
 
 // For the graph edges
@@ -126,7 +182,7 @@ pub struct RelationshipEdge {
 pub struct ExternalDependency {
     pub name: String,
     pub version: Option<String>,
-    pub ecosystem: String, // "cargo", "npm", "pip", etc.
+    pub ecosystem: String,
     pub dependency_type: DependencyType,
     pub source_file: PathBuf,
 }
@@ -148,11 +204,25 @@ impl ProjectMatrix {
                 csd_version: env!("CARGO_PKG_VERSION").to_string(),
                 total_files: 0,
                 total_size_bytes: 0,
+                total_tokens: 0,
                 plugins_used: Vec::new(),
             },
             files: HashMap::new(),
             relationships: Vec::new(),
             external_dependencies: Vec::new(),
+            project_info: ProjectInfo {
+                entrypoints: Vec::new(),
+                project_type: ProjectType::Unknown,
+                main_language: String::new(),
+                token_summary: TokenSummary {
+                    total_tokens: 0,
+                    code_tokens: 0,
+                    documentation_tokens: 0,
+                    average_tokens_per_file: 0.0,
+                    largest_file_tokens: 0,
+                    largest_file_path: None,
+                },
+            },
             graph: None,
             node_indexes: HashMap::new(),
         }
@@ -164,6 +234,20 @@ impl ProjectMatrix {
         // Update metadata
         self.metadata.total_files += 1;
         self.metadata.total_size_bytes += file_node.size_bytes;
+        self.metadata.total_tokens += file_node.token_info.total_tokens;
+
+        // Update token summary
+        self.project_info.token_summary.total_tokens += file_node.token_info.total_tokens;
+        self.project_info.token_summary.code_tokens += file_node.token_info.code_tokens;
+        self.project_info.token_summary.documentation_tokens +=
+            file_node.token_info.documentation_tokens;
+
+        // Track largest file by tokens
+        if file_node.token_info.total_tokens > self.project_info.token_summary.largest_file_tokens {
+            self.project_info.token_summary.largest_file_tokens = file_node.token_info.total_tokens;
+            self.project_info.token_summary.largest_file_path =
+                Some(file_node.relative_path.clone());
+        }
 
         if !self.metadata.plugins_used.contains(&file_node.plugin) {
             self.metadata.plugins_used.push(file_node.plugin.clone());
@@ -201,6 +285,142 @@ impl ProjectMatrix {
         self.external_dependencies.push(dependency);
     }
 
+    /// Finalize the matrix after all files are added
+    pub fn finalize(&mut self) {
+        // Calculate average tokens per file
+        if self.metadata.total_files > 0 {
+            self.project_info.token_summary.average_tokens_per_file =
+                self.project_info.token_summary.total_tokens as f64
+                    / self.metadata.total_files as f64;
+        }
+
+        // Detect project entrypoints
+        self.detect_entrypoints();
+
+        // Determine project type and main language
+        self.analyze_project_structure();
+    }
+
+    /// Detect project entrypoints based on common patterns
+    fn detect_entrypoints(&mut self) {
+        let mut entrypoints = Vec::new();
+
+        // Check for Rust entrypoints
+        if let Some(main_rs) = self
+            .files
+            .values()
+            .find(|f| f.relative_path == PathBuf::from("src/main.rs"))
+        {
+            entrypoints.push(EntrypointInfo {
+                file_path: main_rs.relative_path.clone(),
+                entrypoint_type: "cli".to_string(),
+                confidence: 1.0,
+                reason: "Standard Rust binary entrypoint".to_string(),
+            });
+        }
+
+        if let Some(lib_rs) = self
+            .files
+            .values()
+            .find(|f| f.relative_path == PathBuf::from("src/lib.rs"))
+        {
+            entrypoints.push(EntrypointInfo {
+                file_path: lib_rs.relative_path.clone(),
+                entrypoint_type: "lib".to_string(),
+                confidence: 1.0,
+                reason: "Standard Rust library entrypoint".to_string(),
+            });
+        }
+
+        // Check for Python entrypoints
+        for file in self.files.values() {
+            if file.language.as_deref() == Some("python") {
+                // Check for __main__.py
+                if file.path.file_name().and_then(|n| n.to_str()) == Some("__main__.py") {
+                    entrypoints.push(EntrypointInfo {
+                        file_path: file.relative_path.clone(),
+                        entrypoint_type: "main".to_string(),
+                        confidence: 1.0,
+                        reason: "Python __main__ module".to_string(),
+                    });
+                }
+
+                // Check for if __name__ == "__main__": pattern
+                for element in &file.elements {
+                    if element.element_type == ElementType::Variable
+                        && element.name == "__name__"
+                        && element
+                            .metadata
+                            .get("is_main_check")
+                            .and_then(|v| v.as_bool())
+                            .unwrap_or(false)
+                    {
+                        entrypoints.push(EntrypointInfo {
+                            file_path: file.relative_path.clone(),
+                            entrypoint_type: "script".to_string(),
+                            confidence: 0.9,
+                            reason: "Python script with main check".to_string(),
+                        });
+                    }
+                }
+            }
+        }
+
+        // Check for web application entrypoints
+        if self.files.values().any(|f| {
+            f.path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .map(|n| {
+                    n == "app.py"
+                        || n == "main.py"
+                        || n == "server.py"
+                        || n == "index.js"
+                        || n == "app.js"
+                })
+                .unwrap_or(false)
+        }) {
+            // Web framework detection would go here
+        }
+
+        self.project_info.entrypoints = entrypoints;
+    }
+
+    /// Analyze project structure to determine type and main language
+    fn analyze_project_structure(&mut self) {
+        // Count files by language
+        let mut language_counts: HashMap<String, usize> = HashMap::new();
+        for file in self.files.values() {
+            if let Some(ref lang) = file.language {
+                *language_counts.entry(lang.clone()).or_insert(0) += 1;
+            }
+        }
+
+        // Determine main language
+        if let Some((main_lang, _)) = language_counts.iter().max_by_key(|(_, count)| *count) {
+            self.project_info.main_language = main_lang.clone();
+        }
+
+        // Determine project type
+        let has_main = self
+            .project_info
+            .entrypoints
+            .iter()
+            .any(|e| e.entrypoint_type == "cli" || e.entrypoint_type == "main");
+        let has_lib = self
+            .project_info
+            .entrypoints
+            .iter()
+            .any(|e| e.entrypoint_type == "lib");
+
+        self.project_info.project_type = match (has_main, has_lib) {
+            (true, true) => ProjectType::Mixed,
+            (true, false) => ProjectType::Binary,
+            (false, true) => ProjectType::Library,
+            _ => ProjectType::Unknown,
+        };
+    }
+
     /// Save the matrix to a JSON file
     pub async fn save(&self, path: &Path) -> Result<()> {
         debug!("Saving project matrix to: {}", path.display());
@@ -211,6 +431,11 @@ impl ProjectMatrix {
         }
 
         let json = serde_json::to_string_pretty(self)?;
+        let json_tokens = estimate_tokens(&json);
+
+        // Log the matrix size in tokens
+        info!("Matrix JSON size: {json_tokens} tokens");
+
         tokio::fs::write(path, json).await?;
 
         debug!("Matrix saved successfully");
@@ -232,6 +457,85 @@ impl ProjectMatrix {
             matrix.files.len()
         );
         Ok(matrix)
+    }
+
+    /// Load a subset of the matrix based on file paths (for token-limited scenarios)
+    pub async fn load_subset(path: &Path, file_paths: &[PathBuf]) -> Result<Self> {
+        let full_matrix = Self::load(path).await?;
+        let mut subset_matrix = ProjectMatrix::new(full_matrix.metadata.project_root.clone());
+
+        // Copy metadata
+        subset_matrix.metadata = full_matrix.metadata;
+        subset_matrix.project_info = full_matrix.project_info;
+
+        // Copy only requested files
+        for file_path in file_paths {
+            if let Some(file_node) = full_matrix.files.get(file_path) {
+                subset_matrix
+                    .files
+                    .insert(file_path.clone(), file_node.clone());
+            }
+        }
+
+        // Copy relationships between included files
+        for relationship in &full_matrix.relationships {
+            if subset_matrix.files.contains_key(&relationship.from_file)
+                && subset_matrix.files.contains_key(&relationship.to_file)
+            {
+                subset_matrix.relationships.push(relationship.clone());
+            }
+        }
+
+        // Copy relevant external dependencies
+        for dep in &full_matrix.external_dependencies {
+            if subset_matrix.files.contains_key(&dep.source_file) {
+                subset_matrix.external_dependencies.push(dep.clone());
+            }
+        }
+
+        subset_matrix.rebuild_graph();
+        Ok(subset_matrix)
+    }
+
+    /// Get files sorted by token count (useful for prioritizing in LLM context)
+    pub fn get_files_by_token_count(&self) -> Vec<(&PathBuf, &FileNode)> {
+        let mut files: Vec<_> = self.files.iter().collect();
+        files.sort_by_key(|(_, node)| std::cmp::Reverse(node.token_info.total_tokens));
+        files
+    }
+
+    /// Get a token budget breakdown for LLM context planning
+    pub fn get_token_budget_info(&self, max_tokens: u64) -> TokenBudgetInfo {
+        let mut included_files = Vec::new();
+        let mut remaining_tokens = max_tokens;
+        let mut total_included_tokens = 0;
+
+        for (path, file) in self.get_files_by_token_count() {
+            if file.token_info.total_tokens <= remaining_tokens {
+                included_files.push(path.clone());
+                total_included_tokens += file.token_info.total_tokens;
+                remaining_tokens -= file.token_info.total_tokens;
+            }
+        }
+
+        // Create a set for faster lookups
+        let included_set: std::collections::HashSet<_> = included_files.iter().cloned().collect();
+
+        // Calculate excluded files
+        let excluded_files: Vec<PathBuf> = self
+            .files
+            .keys()
+            .filter(|k| !included_set.contains(*k))
+            .cloned()
+            .collect();
+
+        TokenBudgetInfo {
+            max_tokens,
+            used_tokens: total_included_tokens,
+            remaining_tokens,
+            included_files,
+            excluded_files,
+        }
     }
 
     /// Rebuild the in-memory graph from the JSON data
@@ -352,6 +656,7 @@ impl ProjectMatrix {
             total_relationships: self.relationships.len(),
             highly_coupled_files: coupling_scores.into_iter().take(10).collect(),
             languages: self.metadata.plugins_used.clone(),
+            total_tokens: self.metadata.total_tokens,
         }
     }
 
@@ -374,6 +679,45 @@ impl ProjectMatrix {
             self.external_dependencies.len()
         );
         println!("Languages: {}", self.metadata.plugins_used.join(", "));
+
+        // Token information
+        println!("\n📊 Token Summary:");
+        println!(
+            "  Total tokens: {}",
+            self.project_info.token_summary.total_tokens
+        );
+        println!(
+            "  Code tokens: {}",
+            self.project_info.token_summary.code_tokens
+        );
+        println!(
+            "  Documentation tokens: {}",
+            self.project_info.token_summary.documentation_tokens
+        );
+        println!(
+            "  Average per file: {:.0}",
+            self.project_info.token_summary.average_tokens_per_file
+        );
+        if let Some(ref largest_file) = self.project_info.token_summary.largest_file_path {
+            println!(
+                "  Largest file: {} ({} tokens)",
+                largest_file.display(),
+                self.project_info.token_summary.largest_file_tokens
+            );
+        }
+
+        // Entrypoints
+        if !self.project_info.entrypoints.is_empty() {
+            println!("\n🚀 Detected Entrypoints:");
+            for entry in &self.project_info.entrypoints {
+                println!(
+                    "  {} ({}, confidence: {:.0}%)",
+                    entry.file_path.display(),
+                    entry.entrypoint_type,
+                    entry.confidence * 100.0
+                );
+            }
+        }
 
         // Show files scanned by language/plugin
         println!("\n📁 Files scanned:");
@@ -422,4 +766,38 @@ pub struct ProjectMetrics {
     pub total_relationships: usize,
     pub highly_coupled_files: Vec<(PathBuf, usize)>,
     pub languages: Vec<String>,
+    pub total_tokens: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TokenBudgetInfo {
+    pub max_tokens: u64,
+    pub used_tokens: u64,
+    pub remaining_tokens: u64,
+    pub included_files: Vec<PathBuf>,
+    pub excluded_files: Vec<PathBuf>,
+}
+
+/// Estimate tokens in a string (rough approximation)
+/// Uses ~4 characters per token as a heuristic
+pub fn estimate_tokens(text: &str) -> u64 {
+    (text.len() as f64 / 4.0).ceil() as u64
+}
+
+/// Estimate tokens for code more accurately
+/// Considers whitespace, punctuation, and common patterns
+pub fn estimate_code_tokens(code: &str) -> u64 {
+    // Split by whitespace and common delimiters
+    let token_count = code
+        .split(|c: char| c.is_whitespace() || "(){}[]<>,.;:\"'`|\\/-+=*&%$#@!?~".contains(c))
+        .filter(|s| !s.is_empty())
+        .count();
+
+    // Add some tokens for the delimiters themselves
+    let delimiter_count = code
+        .chars()
+        .filter(|&c| "(){}[]<>,.;:\"'`|\\/-+=*&%$#@!?~".contains(c))
+        .count();
+
+    ((token_count + delimiter_count / 2) as u64).max(1)
 }

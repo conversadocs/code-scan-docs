@@ -27,6 +27,7 @@ fn create_test_code_element() -> CodeElement {
             "visibility": "public",
             "parameters": ["x"]
         }),
+        tokens: Some(150), // NEW: Token count for this element
     }
 }
 
@@ -77,6 +78,16 @@ fn create_test_plugin_output() -> PluginOutput {
         file_summary: Some("Main application file".to_string()),
         processing_time_ms: 150,
         plugin_version: "1.0.0".to_string(),
+        token_info: Some(serde_json::json!({
+            "total_tokens": 500,
+            "code_tokens": 400,
+            "documentation_tokens": 75,
+            "comment_tokens": 25
+        })), // NEW: Token information
+        metadata: Some(serde_json::json!({
+            "has_main_check": true,
+            "module_docstring": "Main module"
+        })), // NEW: Additional metadata
     }
 }
 
@@ -174,6 +185,7 @@ fn test_code_element_creation() {
     assert_eq!(element.calls.len(), 2);
     assert!(element.calls.contains(&"helper_function".to_string()));
     assert!(element.metadata.is_object());
+    assert_eq!(element.tokens, Some(150)); // Test new field
 }
 
 #[test]
@@ -184,6 +196,7 @@ fn test_code_element_serialization() {
     let json = serde_json::to_string(&element).expect("Failed to serialize CodeElement");
     assert!(json.contains("test_function"));
     assert!(json.contains("function"));
+    assert!(json.contains("\"tokens\":150")); // Check token field is serialized
 
     // Deserialize back
     let deserialized: CodeElement =
@@ -193,6 +206,7 @@ fn test_code_element_serialization() {
     assert_eq!(deserialized.element_type, element.element_type);
     assert_eq!(deserialized.line_start, element.line_start);
     assert_eq!(deserialized.calls, element.calls);
+    assert_eq!(deserialized.tokens, element.tokens);
 }
 
 #[test]
@@ -392,6 +406,8 @@ fn test_plugin_output_creation() {
     assert_eq!(output.external_dependencies.len(), 1);
     assert_eq!(output.processing_time_ms, 150);
     assert_eq!(output.plugin_version, "1.0.0");
+    assert!(output.token_info.is_some()); // Test new field
+    assert!(output.metadata.is_some()); // Test new field
 }
 
 #[test]
@@ -399,6 +415,9 @@ fn test_plugin_output_serialization() {
     let output = create_test_plugin_output();
 
     let json = serde_json::to_string(&output).expect("Failed to serialize PluginOutput");
+    assert!(json.contains("\"token_info\"")); // Check new field is serialized
+    assert!(json.contains("\"metadata\"")); // Check new field is serialized
+
     let deserialized: PluginOutput =
         serde_json::from_str(&json).expect("Failed to deserialize PluginOutput");
 
@@ -408,6 +427,24 @@ fn test_plugin_output_serialization() {
     assert_eq!(deserialized.imports.len(), output.imports.len());
     assert_eq!(deserialized.exports, output.exports);
     assert_eq!(deserialized.processing_time_ms, output.processing_time_ms);
+    assert!(deserialized.token_info.is_some());
+    assert!(deserialized.metadata.is_some());
+}
+
+#[test]
+fn test_plugin_output_token_info() {
+    let output = create_test_plugin_output();
+
+    // Check token_info structure
+    let token_info = output.token_info.as_ref().unwrap();
+    assert!(token_info.get("total_tokens").is_some());
+    assert!(token_info.get("code_tokens").is_some());
+    assert!(token_info.get("documentation_tokens").is_some());
+    assert!(token_info.get("comment_tokens").is_some());
+
+    // Verify values
+    assert_eq!(token_info.get("total_tokens").unwrap().as_u64(), Some(500));
+    assert_eq!(token_info.get("code_tokens").unwrap().as_u64(), Some(400));
 }
 
 #[test]
@@ -835,6 +872,7 @@ fn test_code_element_with_empty_collections() {
         complexity_score: None,
         calls: vec![], // Empty calls
         metadata: serde_json::Value::Null,
+        tokens: None, // No token count
     };
 
     // Should serialize/deserialize without issues
@@ -846,6 +884,32 @@ fn test_code_element_with_empty_collections() {
     assert_eq!(deserialized.calls.len(), 0);
     assert!(deserialized.summary.is_none());
     assert!(deserialized.complexity_score.is_none());
+    assert!(deserialized.tokens.is_none());
+}
+
+#[test]
+fn test_code_element_with_tokens() {
+    let element = CodeElement {
+        element_type: "function".to_string(),
+        name: "calculate".to_string(),
+        signature: Some("fn calculate(x: i32, y: i32) -> i32".to_string()),
+        line_start: 10,
+        line_end: 15,
+        summary: Some("Calculates the sum of two numbers".to_string()),
+        complexity_score: Some(1),
+        calls: vec![],
+        metadata: serde_json::json!({"is_pure": true}),
+        tokens: Some(75), // Function has 75 tokens
+    };
+
+    let json =
+        serde_json::to_string(&element).expect("Failed to serialize CodeElement with tokens");
+    assert!(json.contains("\"tokens\":75"));
+
+    let deserialized: CodeElement =
+        serde_json::from_str(&json).expect("Failed to deserialize CodeElement with tokens");
+
+    assert_eq!(deserialized.tokens, Some(75));
 }
 
 #[test]
@@ -983,6 +1047,80 @@ fn test_output_plugin_result_with_multiple_outputs() {
         PathBuf::from("README.md")
     );
     assert_eq!(deserialized.outputs[1].output_path, PathBuf::from("API.md"));
+}
+
+#[test]
+fn test_plugin_output_with_token_info() {
+    let mut output = create_test_plugin_output();
+
+    // Test with specific token info
+    output.token_info = Some(serde_json::json!({
+        "total_tokens": 1500,
+        "code_tokens": 1200,
+        "documentation_tokens": 200,
+        "comment_tokens": 100
+    }));
+
+    let json =
+        serde_json::to_string(&output).expect("Failed to serialize PluginOutput with token info");
+    assert!(json.contains("\"total_tokens\":1500"));
+
+    let deserialized: PluginOutput =
+        serde_json::from_str(&json).expect("Failed to deserialize PluginOutput with token info");
+
+    let token_info = deserialized.token_info.as_ref().unwrap();
+    assert_eq!(token_info.get("total_tokens").unwrap().as_u64(), Some(1500));
+    assert_eq!(token_info.get("code_tokens").unwrap().as_u64(), Some(1200));
+}
+
+#[test]
+fn test_plugin_output_with_metadata() {
+    let mut output = create_test_plugin_output();
+
+    // Test with specific metadata
+    output.metadata = Some(serde_json::json!({
+        "has_main_check": false,
+        "uses_async": true,
+        "framework": "tokio"
+    }));
+
+    let json =
+        serde_json::to_string(&output).expect("Failed to serialize PluginOutput with metadata");
+    assert!(json.contains("\"framework\":\"tokio\""));
+
+    let deserialized: PluginOutput =
+        serde_json::from_str(&json).expect("Failed to deserialize PluginOutput with metadata");
+
+    let metadata = deserialized.metadata.as_ref().unwrap();
+    assert_eq!(metadata.get("uses_async").unwrap().as_bool(), Some(true));
+    assert_eq!(metadata.get("framework").unwrap().as_str(), Some("tokio"));
+}
+
+#[test]
+fn test_plugin_output_minimal() {
+    // Test minimal PluginOutput with no token info or metadata
+    let output = PluginOutput {
+        file_path: PathBuf::from("minimal.rs"),
+        file_hash: "hash123".to_string(),
+        elements: vec![],
+        imports: vec![],
+        exports: vec![],
+        relationships: vec![],
+        external_dependencies: vec![],
+        file_summary: None,
+        processing_time_ms: 50,
+        plugin_version: "1.0.0".to_string(),
+        token_info: None,
+        metadata: None,
+    };
+
+    let json = serde_json::to_string(&output).expect("Failed to serialize minimal PluginOutput");
+    let deserialized: PluginOutput =
+        serde_json::from_str(&json).expect("Failed to deserialize minimal PluginOutput");
+
+    assert_eq!(deserialized.file_path, PathBuf::from("minimal.rs"));
+    assert!(deserialized.token_info.is_none());
+    assert!(deserialized.metadata.is_none());
 }
 
 #[test]

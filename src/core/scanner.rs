@@ -1,4 +1,5 @@
-use crate::core::matrix::ProjectMatrix;
+// src/core/scanner.rs - Enhanced scanner with token counting
+use crate::core::matrix::{estimate_code_tokens, estimate_tokens, ProjectMatrix, TokenInfo};
 use crate::plugins::interface::{InputPluginInterface, PluginInput};
 use crate::utils::config::Config;
 use anyhow::Result;
@@ -74,6 +75,9 @@ impl ProjectScanner {
 
             matrix.add_file(file_node);
         }
+
+        // Finalize the matrix to detect entrypoints and calculate summaries
+        matrix.finalize();
 
         debug!("Matrix created with {} files", matrix.files.len());
         Ok(matrix)
@@ -199,6 +203,14 @@ impl ProjectScanner {
             .elements
             .into_iter()
             .map(|e| {
+                // Get summary from metadata if not directly provided
+                let summary = e.summary.or_else(|| {
+                    e.metadata
+                        .get("docstring")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string())
+                });
+
                 crate::core::matrix::CodeElement {
                     element_type: match e.element_type.as_str() {
                         "function" => crate::core::matrix::ElementType::Function,
@@ -217,10 +229,11 @@ impl ProjectScanner {
                     signature: e.signature,
                     line_start: e.line_start,
                     line_end: e.line_end,
-                    summary: e.summary,
+                    summary,
                     complexity_score: e.complexity_score,
                     calls: e.calls,
                     metadata: e.metadata,
+                    tokens: e.tokens.unwrap_or(0),
                 }
             })
             .collect();
@@ -284,6 +297,44 @@ impl ProjectScanner {
             matrix.add_external_dependency(dependency);
         }
 
+        // Extract token info from plugin output
+        let token_info = if let Some(token_info_value) = plugin_output.token_info {
+            // Handle the token_info from the plugin output
+            if let Ok(token_map) =
+                serde_json::from_value::<std::collections::HashMap<String, u64>>(token_info_value)
+            {
+                TokenInfo {
+                    total_tokens: token_map.get("total_tokens").copied().unwrap_or(0),
+                    code_tokens: token_map.get("code_tokens").copied().unwrap_or(0),
+                    documentation_tokens: token_map
+                        .get("documentation_tokens")
+                        .copied()
+                        .unwrap_or(0),
+                    comment_tokens: token_map.get("comment_tokens").copied().unwrap_or(0),
+                }
+            } else {
+                // Fallback: estimate tokens from file size
+                let estimated_tokens =
+                    estimate_tokens(&std::fs::read_to_string(&file_info.path).unwrap_or_default());
+                TokenInfo {
+                    total_tokens: estimated_tokens,
+                    code_tokens: estimated_tokens,
+                    documentation_tokens: 0,
+                    comment_tokens: 0,
+                }
+            }
+        } else {
+            // Fallback: estimate tokens from file size
+            let estimated_tokens =
+                estimate_tokens(&std::fs::read_to_string(&file_info.path).unwrap_or_default());
+            TokenInfo {
+                total_tokens: estimated_tokens,
+                code_tokens: estimated_tokens,
+                documentation_tokens: 0,
+                comment_tokens: 0,
+            }
+        };
+
         // Create the file node
         Ok(crate::core::matrix::FileNode {
             path: file_info.path.clone(),
@@ -300,6 +351,7 @@ impl ProjectScanner {
             imports,
             exports: plugin_output.exports,
             file_summary: plugin_output.file_summary,
+            token_info,
         })
     }
 
@@ -307,6 +359,34 @@ impl ProjectScanner {
         &self,
         file_info: &FileInfo,
     ) -> Result<crate::core::matrix::FileNode> {
+        // For non-analyzed files, estimate tokens from file content if it's text
+        let token_info = if file_info.is_text {
+            match tokio::fs::read_to_string(&file_info.path).await {
+                Ok(content) => {
+                    let total_tokens = estimate_code_tokens(&content);
+                    TokenInfo {
+                        total_tokens,
+                        code_tokens: total_tokens,
+                        documentation_tokens: 0,
+                        comment_tokens: 0,
+                    }
+                }
+                Err(_) => TokenInfo {
+                    total_tokens: 0,
+                    code_tokens: 0,
+                    documentation_tokens: 0,
+                    comment_tokens: 0,
+                },
+            }
+        } else {
+            TokenInfo {
+                total_tokens: 0,
+                code_tokens: 0,
+                documentation_tokens: 0,
+                comment_tokens: 0,
+            }
+        };
+
         Ok(crate::core::matrix::FileNode {
             path: file_info.path.clone(),
             relative_path: file_info.relative_path.clone(),
@@ -322,6 +402,7 @@ impl ProjectScanner {
             imports: Vec::new(),
             exports: Vec::new(),
             file_summary: None,
+            token_info,
         })
     }
 
