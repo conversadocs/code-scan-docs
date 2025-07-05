@@ -4,12 +4,13 @@ LLM utilities for CSD output plugins.
 Provides shared LLM client functionality and token management.
 """
 
-import aiohttp
-import asyncio
 import logging
 import time
 from typing import Dict, Any, Optional, List, cast
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+
+
+from .llm_providers import LLMResponse, LLMProvider
 
 
 @dataclass
@@ -17,7 +18,7 @@ class LLMConfig:
     """Configuration for LLM integration."""
 
     provider: str = "ollama"
-    base_url: str = "http://localhost:11434"
+
     model: str = "deepseek-coder:6.7b"
     timeout_seconds: int = 30
     max_tokens_per_request: int = 4000
@@ -25,24 +26,22 @@ class LLMConfig:
     temperature: float = 0.7
     top_p: float = 0.9
 
+    base_url: str = "http://localhost:11434"
 
-@dataclass
-class LLMResponse:
-    """Response from LLM."""
+    api_key: Optional[str] = None
+    organization: Optional[str] = None
 
-    content: str
-    success: bool
-    error: Optional[str] = None
-    processing_time_ms: int = 0
-    tokens_used: Optional[int] = None
+    provider_config: Dict[str, Any] = field(default_factory=dict)
 
 
 class TokenManager:
     """Manages token estimation and budgeting for LLM requests."""
 
-    def __init__(self, model_name: str):
+    def __init__(self, model_name: str, provider=None):
         self.model_name = model_name
+        self.provider = provider
         self.chars_per_token = 4
+
         self.model_limits = {
             "deepseek-coder": {"max_total": 8192, "reserve_output": 1000},
             "deepseek-coder:6.7b": {"max_total": 8192, "reserve_output": 1000},
@@ -52,10 +51,16 @@ class TokenManager:
 
     def estimate_tokens(self, text: str) -> int:
         """Estimate the number of tokens based on character count."""
+        if self.provider and hasattr(self.provider, "estimate_tokens"):
+            return int(self.provider.estimate_tokens(text))
         return len(text) // self.chars_per_token
 
     def get_model_limits(self) -> Dict[str, int]:
         """Get token limits for the current model."""
+        if self.provider and hasattr(self.provider, "get_model_limits"):
+            limits = self.provider.get_model_limits(self.model_name)
+            return cast(Dict[str, int], limits)
+
         for key in [self.model_name, self.model_name.split(":")[0], "default"]:
             if key in self.model_limits:
                 return self.model_limits[key]
@@ -99,8 +104,35 @@ class LLMClient:
 
     def __init__(self, config: LLMConfig):
         self.config = config
-        self.token_manager = TokenManager(config.model)
+        self.provider: LLMProvider = self._create_provider(config)
+        self.token_manager = TokenManager(config.model, self.provider)
         self.logger = logging.getLogger(__name__)
+
+    def _create_provider(self, config: LLMConfig) -> LLMProvider:
+        """Create the appropriate provider based on configuration."""
+        from .llm_providers import get_provider_class
+
+        provider_class = get_provider_class(config.provider)
+
+        if config.provider == "ollama":
+            return cast(
+                LLMProvider,
+                provider_class(
+                    base_url=config.base_url, timeout_seconds=config.timeout_seconds
+                ),
+            )
+        elif config.provider == "openai":
+            return cast(
+                LLMProvider,
+                provider_class(
+                    api_key=config.api_key or config.provider_config.get("api_key", ""),
+                    organization=config.organization
+                    or config.provider_config.get("organization"),
+                    timeout_seconds=config.timeout_seconds,
+                ),
+            )
+        else:
+            return cast(LLMProvider, provider_class(**config.provider_config))
 
     async def generate(
         self,
@@ -114,10 +146,13 @@ class LLMClient:
         try:
             full_prompt = self._build_prompt(prompt, system_prompt, context)
 
-            if self.config.provider.lower() == "ollama":
-                response = await self._call_ollama(full_prompt)
-            else:
-                raise ValueError(f"Unsupported LLM provider: {self.config.provider}")
+            response = await self.provider.generate(
+                prompt=full_prompt,
+                model=self.config.model,
+                temperature=self.config.temperature,
+                max_tokens=self.config.max_tokens_per_request,
+                top_p=self.config.top_p,
+            )
 
             processing_time = int((time.time() - start_time) * 1000)
             response.processing_time_ms = processing_time
@@ -167,68 +202,10 @@ class LLMClient:
         )
         return full_prompt
 
-    async def _call_ollama(self, prompt: str) -> LLMResponse:
-        """Make a request to Ollama API."""
-        url = f"{self.config.base_url}/api/generate"
-
-        payload = {
-            "model": self.config.model,
-            "prompt": prompt,
-            "stream": False,
-            "options": {
-                "temperature": self.config.temperature,
-                "top_p": self.config.top_p,
-                "num_predict": self.config.max_tokens_per_request,
-            },
-        }
-
-        timeout = aiohttp.ClientTimeout(total=self.config.timeout_seconds)
-
-        try:
-            async with aiohttp.ClientSession(timeout=timeout) as session:
-                async with session.post(url, json=payload) as response:
-                    if response.status == 200:
-                        result = await response.json()
-
-                        content = result.get("response", "").strip()
-
-                        return LLMResponse(
-                            content=content,
-                            success=True,
-                            tokens_used=result.get("total_duration", 0),
-                        )
-                    else:
-                        error_text = await response.text()
-                        return LLMResponse(
-                            content="",
-                            success=False,
-                            error=f"HTTP {response.status}: {error_text}",
-                        )
-
-        except asyncio.TimeoutError:
-            return LLMResponse(
-                content="",
-                success=False,
-                error=f"Request timed out after {self.config.timeout_seconds} seconds",
-            )
-        except Exception as e:
-            return LLMResponse(
-                content="", success=False, error=f"Request failed: {str(e)}"
-            )
-
     async def test_connection(self) -> bool:
         """Test if we can connect to the LLM."""
-        try:
-            if self.config.provider.lower() == "ollama":
-                url = f"{self.config.base_url}/api/version"
-                timeout = aiohttp.ClientTimeout(total=5)
-
-                async with aiohttp.ClientSession(timeout=timeout) as session:
-                    async with session.get(url) as response:
-                        return response.status == 200
-            return False
-        except Exception:
-            return False
+        result = await self.provider.test_connection()
+        return bool(result)
 
 
 class SectionProcessor:

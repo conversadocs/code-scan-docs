@@ -2,7 +2,6 @@
 
 from ._version import __version__
 
-# Import main classes that plugins will use
 from .base.input import (
     BaseAnalyzer,
     PluginInput,
@@ -22,6 +21,14 @@ from .base.output import (
     extract_dependencies,
 )
 from .utils.llm import LLMClient, LLMConfig, SectionProcessor
+from .utils.llm_providers import (
+    LLMProvider,
+    LLMResponse,
+    OllamaProvider,
+    OpenAIProvider,
+    get_provider_class,
+    register_provider,
+)
 
 __all__ = [
     "__version__",
@@ -42,4 +49,10 @@ __all__ = [
     "Import",
     "Relationship",
     "ExternalDependency",
+    "LLMProvider",
+    "LLMResponse",
+    "OllamaProvider",
+    "OpenAIProvider",
+    "get_provider_class",
+    "register_provider",
 ]

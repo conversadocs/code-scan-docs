@@ -6,7 +6,6 @@ use csd::cli::commands;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    // Initialize logging
     env_logger::Builder::from_default_env()
         .filter_level(log::LevelFilter::Info)
         .init();

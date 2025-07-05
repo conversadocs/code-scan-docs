@@ -37,11 +37,9 @@ def estimate_code_tokens(code: str) -> int:
     if not code:
         return 0
 
-    # Split by whitespace and common delimiters
     tokens = re.split(r'[\s\(\)\{\}\[\]<>,.;:"\'\`|\\\/\-+=*&%$#@!?~]+', code)
     tokens = [t for t in tokens if t]
 
-    # Count delimiters as partial tokens
     delimiters = re.findall(r'[\(\)\{\}\[\]<>,.;:"\'\`|\\\/\-+=*&%$#@!?~]', code)
 
     return max(1, len(tokens) + len(delimiters) // 2)
@@ -54,7 +52,7 @@ class RustAnalyzer(BaseAnalyzer):
         """Initialize the RustAnalyzer instance."""
         super().__init__()
         self.name = "rust"
-        self.version = "2.0.0"  # Bumped version for new features
+        self.version = "2.0.0"
         self.supported_extensions = [".rs"]
         self.supported_filenames = [
             "Cargo.toml",
@@ -118,10 +116,8 @@ class RustAnalyzer(BaseAnalyzer):
         exports = self._extract_exports(content, lines)
         relationships = self._extract_relationships(imports, input_data)
 
-        # Calculate token information
         token_info = self._calculate_token_info(content, elements)
 
-        # Check for main entry point
         has_main_fn = self._check_for_main_entry(content)
 
         return PluginOutput(
@@ -146,17 +142,14 @@ class RustAnalyzer(BaseAnalyzer):
         """Calculate token information for the file."""
         total_tokens = estimate_code_tokens(content)
 
-        # Count documentation tokens from doc comments
         doc_tokens = 0
         for line in content.split("\n"):
             stripped = line.strip()
             if stripped.startswith("///") or stripped.startswith("//!"):
                 doc_tokens += estimate_tokens(stripped[3:])
             elif stripped.startswith("/**") or stripped.startswith("/*!"):
-                # Block doc comments - basic handling
                 doc_tokens += estimate_tokens(stripped)
 
-        # Extract and count regular comment tokens
         comment_tokens = 0
         for line in content.split("\n"):
             stripped = line.strip()
@@ -171,10 +164,8 @@ class RustAnalyzer(BaseAnalyzer):
                 and not stripped.startswith("/**")
                 and not stripped.startswith("/*!")
             ):
-                # Block comments - basic handling
                 comment_tokens += estimate_tokens(stripped)
 
-        # Code tokens are the remaining tokens
         code_tokens = max(0, total_tokens - doc_tokens - comment_tokens)
 
         return {
@@ -186,7 +177,6 @@ class RustAnalyzer(BaseAnalyzer):
 
     def _check_for_main_entry(self, content: str) -> bool:
         """Check if the file has a main function."""
-        # Look for main function patterns
         main_patterns = [
             r"^\s*fn\s+main\s*\(",
             r"^\s*pub\s+fn\s+main\s*\(",
@@ -256,12 +246,10 @@ class RustAnalyzer(BaseAnalyzer):
                         is_public = "pub " in line
                         is_async = "async " in line and element_type == "function"
 
-                        # Extract documentation for this element
                         doc_comment = self._extract_element_documentation(
                             lines, line_num - 1
                         )
 
-                        # Calculate tokens for this element
                         element_lines = lines[line_num - 1 : end_line]
                         element_content = "\n".join(element_lines)
                         element_tokens = estimate_code_tokens(element_content)
@@ -273,7 +261,7 @@ class RustAnalyzer(BaseAnalyzer):
                                 signature=line_stripped,
                                 line_start=line_num,
                                 line_end=end_line,
-                                summary=doc_comment,  # Now populated with doc comments
+                                summary=doc_comment,
                                 complexity_score=complexity,
                                 calls=calls,
                                 tokens=element_tokens,
@@ -304,29 +292,22 @@ class RustAnalyzer(BaseAnalyzer):
         """Extract documentation comments for an element."""
         doc_lines: List[str] = []
 
-        # Look backwards from the element line for doc comments
         for i in range(element_line - 1, -1, -1):
             line = lines[i].strip()
 
             if line.startswith("///"):
-                # Regular doc comment
                 doc_lines.insert(0, line[3:].strip())
             elif line.startswith("//!"):
-                # Module-level doc comment
                 doc_lines.insert(0, line[3:].strip())
             elif line.startswith("/**") and line.endswith("*/"):
-                # Single-line block doc comment
                 content = line[3:-2].strip()
                 if content:
                     doc_lines.insert(0, content)
             elif line.startswith("#["):
-                # Attribute, continue looking
                 continue
             elif not line or line.startswith("//"):
-                # Empty line or regular comment, continue
                 continue
             else:
-                # Hit non-doc content, stop
                 break
 
         if doc_lines:
@@ -365,9 +346,9 @@ class RustAnalyzer(BaseAnalyzer):
         calls: Set[str] = set()
 
         call_patterns = [
-            r"(\w+)\s*\(",  # Simple function calls
-            r"\.(\w+)\s*\(",  # Method calls
-            r"(\w+)::\w+\s*\(",  # Associated function calls
+            r"(\w+)\s*\(",
+            r"\.(\w+)\s*\(",
+            r"(\w+)::\w+\s*\(",
         ]
 
         for line_num in range(start, min(end, len(lines))):
