@@ -54,14 +54,6 @@ pub enum Command {
         include_tests: bool,
     },
 
-    Quality {
-        #[arg(short, long)]
-        matrix: Option<PathBuf>,
-
-        #[arg(long)]
-        metrics: Vec<QualityMetric>,
-    },
-
     Docs {
         #[arg(short, long)]
         matrix: Option<PathBuf>,
@@ -93,20 +85,6 @@ pub enum OutputFormat {
     Json,
     Yaml,
     Pretty,
-}
-
-/// Quality metrics that can be analyzed.
-///
-/// Defines the different types of code quality measurements that can be
-/// performed during analysis.
-#[derive(ValueEnum, Clone, Debug)]
-pub enum QualityMetric {
-    Complexity,
-    Coverage,
-    Maintainability,
-    Security,
-    Performance,
-    All,
 }
 
 /// Documentation format options.

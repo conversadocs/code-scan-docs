@@ -16,7 +16,6 @@ use std::path::Path;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
     pub output_dir: String,
-    pub llm: LlmConfig,
     pub scanning: ScanConfig,
     pub input_plugins: HashMap<String, InputPluginConfig>,
     pub output_plugins: HashMap<String, OutputPluginConfig>,
@@ -94,18 +93,6 @@ pub enum PluginSource {
     Git { url: String, branch: Option<String> },
     #[serde(rename = "builtin")]
     Builtin { name: String, plugin_type: String },
-}
-
-/// Configuration for Large Language Model integration.
-///
-/// Contains settings for connecting to and using LLM services for
-/// enhanced analysis and documentation generation.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct LlmConfig {
-    pub provider: String,
-    pub base_url: String,
-    pub model: String,
-    pub timeout_seconds: u64,
 }
 
 /// Configuration for project scanning behavior.
@@ -193,12 +180,6 @@ impl Default for Config {
 
         Self {
             output_dir: "output".to_string(),
-            llm: LlmConfig {
-                provider: "ollama".to_string(),
-                base_url: "http://localhost:11434".to_string(),
-                model: "deepseek-coder".to_string(),
-                timeout_seconds: 30,
-            },
             scanning: ScanConfig {
                 ignore_patterns: vec![
                     "target/".to_string(),
@@ -233,9 +214,7 @@ impl Config {
     /// The loaded configuration or an error if loading fails.
     pub async fn load(path: &Path) -> Result<Self> {
         let content = tokio::fs::read_to_string(path).await?;
-        let mut config: Config = serde_yaml::from_str(&content)?;
-
-        config.migrate_legacy_plugins();
+        let config: Config = serde_yaml::from_str(&content)?;
 
         Ok(config)
     }
@@ -255,43 +234,6 @@ impl Config {
         let content = serde_yaml::to_string(self)?;
         tokio::fs::write(path, content).await?;
         Ok(())
-    }
-
-    /// Migrates legacy plugin configurations to the new format.
-    ///
-    /// Converts older unified plugin configurations into separate input
-    /// and output plugin configurations, removing the legacy format.
-    fn migrate_legacy_plugins(&mut self) {
-        if let Some(legacy_plugins) = &self.plugins {
-            for (name, legacy_config) in legacy_plugins {
-                if legacy_config.file_patterns.is_some() {
-                    let input_config = InputPluginConfig {
-                        source: legacy_config.source.clone(),
-                        file_patterns: legacy_config.file_patterns.clone().unwrap_or_else(|| {
-                            FilePatterns {
-                                extensions: vec![],
-                                filenames: vec![],
-                                glob_patterns: None,
-                            }
-                        }),
-                        enabled: legacy_config.enabled,
-                        config: legacy_config.config.clone(),
-                    };
-                    self.input_plugins.insert(name.clone(), input_config);
-                } else if legacy_config.output_types.is_some() || legacy_config.formats.is_some() {
-                    let output_config = OutputPluginConfig {
-                        source: legacy_config.source.clone(),
-                        output_types: legacy_config.output_types.clone().unwrap_or_default(),
-                        formats: legacy_config.formats.clone().unwrap_or_default(),
-                        enabled: legacy_config.enabled,
-                        config: legacy_config.config.clone(),
-                    };
-                    self.output_plugins.insert(name.clone(), output_config);
-                }
-            }
-
-            self.plugins = None;
-        }
     }
 
     /// Finds the appropriate input plugin for analyzing a specific file.
