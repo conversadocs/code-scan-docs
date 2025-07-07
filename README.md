@@ -10,19 +10,264 @@ Armed with this in-depth analysis, `code-scan-docs` can perform automated code r
 
 ## Installation
 
-<!-- CSD:SECTION:installation -->
+### Prerequisites
 
-Basic installation instructions go here.
+- **Rust**: Version 1.70 or higher
+- **Python**: Version 3.8 or higher (for plugins)
+- **Git**: For repository scanning features
 
-<!-- /CSD:SECTION:installation -->
+### Install from Source
+
+1. Clone the repository:
+
+```bash
+git clone <repository-url>
+cd csd
+```
+
+2. Build the application:
+
+```bash
+cargo build --release
+```
+
+3. Install globally (optional):
+
+```bash
+cargo install --path .
+```
+
+### Install Python Plugin Dependencies
+
+The application uses Python-based plugins for code analysis. Install the required dependencies:
+
+```bash
+cd plugins/shared/python
+pip install -r requirements.txt
+# or for development
+pip install -e .
+```
+
+### Verify Installation
+
+Check that CSD is properly installed:
+
+```bash
+csd --version
+```
 
 ## Usage
 
-<!-- CSD:SECTION:usage -->
+### Quick Start
 
-Usage examples will be generated here.
+1. **Initialize a project scan**:
 
-<!-- /CSD:SECTION:usage -->
+```bash
+csd init
+```
+
+This will scan your current directory and create a `.csd_cache/matrix.json` file with the analysis results.
+
+2. **Generate documentation**:
+
+```bash
+csd docs --format markdown
+```
+
+3. **View available plugins**:
+
+```bash
+csd plugins
+```
+
+### Commands
+
+### `csd init`
+
+Scan and analyze your project to build the code matrix.
+
+```bash
+# Scan current directory
+csd init
+
+# Scan specific directory
+csd init /path/to/project
+
+# Export results in different formats
+csd init --output json --output-file analysis.json
+csd init --output yaml --output-file analysis.yaml
+```
+
+**Options:**
+
+- `--output <format>`: Export format (json, yaml)
+- `--output-file <path>`: Output file path
+- `--no-llm`: Disable LLM features
+- `--include-tests`: Include test files in analysis
+
+#### `csd docs`
+
+Generate documentation from your project matrix.
+
+```bash
+# Generate markdown documentation
+csd docs --format markdown
+
+# Specify output directory
+csd docs --format markdown --output-dir ./docs
+
+# Use custom matrix file
+csd docs --matrix custom-matrix.json --format html
+```
+
+#### `csd plugins`
+
+List and manage available plugins.
+
+```bash
+# List all plugins
+csd plugins
+
+# Show detailed plugin information
+csd plugins --detailed
+```
+
+#### `csd config`
+
+Initialize or manage configuration.
+
+```bash
+# Create default configuration file
+csd config
+
+# Force overwrite existing config
+csd config --force
+```
+
+### Configuration
+
+CSD uses a `.csdrc.yaml` configuration file in your project root:
+
+```yaml
+# Example configuration
+project:
+  name: 'My Project'
+  description: 'Project description'
+
+input_plugins:
+  rust_analyzer:
+    enabled: true
+    path: 'plugins/input/code/rust_analyzer.py'
+  python_analyzer:
+    enabled: true
+    path: 'plugins/input/code/python_analyzer.py'
+
+output_plugins:
+  markdown_docs:
+    enabled: true
+    path: 'plugins/output/docs/markdown_docs.py'
+    config:
+      llm:
+        enabled: true
+        provider: 'ollama'
+        model: 'llama2'
+
+cache:
+  directory: '.csd_cache'
+  enabled: true
+
+scanning:
+  ignore_patterns:
+    - 'node_modules'
+    - 'target'
+    - '.git'
+    - '*.log'
+```
+
+### Plugin System
+
+CSD uses a plugin architecture for extensible code analysis:
+
+#### Input Plugins
+
+- **Rust Analyzer**: Analyzes Rust code structure, functions, modules
+- **Python Analyzer**: Analyzes Python code, imports, classes, functions
+
+#### Output Plugins
+
+- **Markdown Documentation**: Generates comprehensive markdown docs with optional LLM enhancement
+
+#### LLM Integration
+
+Enable LLM-powered documentation enhancement:
+
+```yaml
+output_plugins:
+  markdown_docs:
+    config:
+      llm:
+        enabled: true
+        provider: 'ollama' # or "openai"
+        model: 'llama2'
+        base_url: 'http://localhost:11434' # for Ollama
+```
+
+### Examples
+
+#### Basic Project Analysis
+
+```bash
+# Scan and generate docs in one go
+csd init && csd docs --format markdown --output-dir ./documentation
+```
+
+#### Advanced Usage
+
+```bash
+# Scan with custom config
+csd init --config custom-config.yaml
+
+# Generate docs with LLM enhancement
+csd docs --format markdown --output-dir ./docs
+
+# Analyze specific directory
+csd init /path/to/source/code --output json --output-file analysis.json
+```
+
+### File Structure
+
+After running CSD, your project will have:
+
+```
+your-project/
+├── .csdrc.yaml          # Configuration file
+├── .csd_cache/          # Cache directory
+│   └── matrix.json      # Project analysis matrix
+└── docs/                # Generated documentation (if specified)
+    └── README.md
+```
+
+## Troubleshooting
+
+### Common Issues
+
+1. **Python plugin errors**: Ensure Python dependencies are installed
+
+```bash
+cd plugins/shared/python && pip install -e .
+```
+
+2. **Plugin not found**: Check plugin paths in `.csdrc.yaml`
+
+3. **Permission errors**: Ensure CSD has read access to your project files
+
+### Debug Mode
+
+Run with verbose logging:
+
+```bash
+RUST_LOG=debug csd init
+```
 
 ## Contributors ✨
 

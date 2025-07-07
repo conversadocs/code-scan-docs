@@ -1,5 +1,5 @@
 use clap::Parser;
-use csd::cli::args::{Args, Command, DocFormat, OutputFormat, QualityMetric};
+use csd::cli::args::{Args, Command, DocFormat, OutputFormat};
 use std::path::PathBuf;
 
 // Helper function to parse args from a string slice
@@ -118,89 +118,6 @@ mod output_format_tests {
                 assert!(matches!(output, OutputFormat::Pretty));
             }
             _ => panic!("Expected Init command"),
-        }
-    }
-}
-
-#[cfg(test)]
-mod quality_command_tests {
-    use super::*;
-
-    #[test]
-    fn test_quality_command_basic() {
-        let args = parse_args_success(&["csd", "quality"]);
-
-        match args.command {
-            Command::Quality { matrix, metrics } => {
-                assert!(matrix.is_none()); // No matrix file specified
-                assert!(metrics.is_empty()); // No specific metrics specified
-            }
-            _ => panic!("Expected Quality command"),
-        }
-    }
-
-    #[test]
-    fn test_quality_command_with_options() {
-        let args = parse_args_success(&[
-            "csd",
-            "quality",
-            "--matrix",
-            "/path/to/matrix.json",
-            "--metrics",
-            "complexity",
-            "--metrics",
-            "security",
-        ]);
-
-        match args.command {
-            Command::Quality { matrix, metrics } => {
-                assert_eq!(matrix, Some(PathBuf::from("/path/to/matrix.json")));
-                assert_eq!(metrics.len(), 2);
-                assert!(metrics
-                    .iter()
-                    .any(|m| matches!(m, QualityMetric::Complexity)));
-                assert!(metrics.iter().any(|m| matches!(m, QualityMetric::Security)));
-            }
-            _ => panic!("Expected Quality command"),
-        }
-    }
-
-    #[test]
-    fn test_quality_metrics_all_types() {
-        let args = parse_args_success(&[
-            "csd",
-            "quality",
-            "--metrics",
-            "complexity",
-            "--metrics",
-            "coverage",
-            "--metrics",
-            "maintainability",
-            "--metrics",
-            "security",
-            "--metrics",
-            "performance",
-            "--metrics",
-            "all",
-        ]);
-
-        match args.command {
-            Command::Quality { metrics, .. } => {
-                assert_eq!(metrics.len(), 6);
-                assert!(metrics
-                    .iter()
-                    .any(|m| matches!(m, QualityMetric::Complexity)));
-                assert!(metrics.iter().any(|m| matches!(m, QualityMetric::Coverage)));
-                assert!(metrics
-                    .iter()
-                    .any(|m| matches!(m, QualityMetric::Maintainability)));
-                assert!(metrics.iter().any(|m| matches!(m, QualityMetric::Security)));
-                assert!(metrics
-                    .iter()
-                    .any(|m| matches!(m, QualityMetric::Performance)));
-                assert!(metrics.iter().any(|m| matches!(m, QualityMetric::All)));
-            }
-            _ => panic!("Expected Quality command"),
         }
     }
 }
@@ -549,41 +466,6 @@ mod comprehensive_tests {
     }
 
     #[test]
-    fn test_complex_quality_scenario() {
-        let args = parse_args_success(&[
-            "csd",
-            "--config",
-            "custom-config.yaml",
-            "quality",
-            "--matrix",
-            "analysis-matrix.json",
-            "--metrics",
-            "complexity",
-            "--metrics",
-            "security",
-            "--metrics",
-            "maintainability",
-        ]);
-
-        assert_eq!(args.config, Some(PathBuf::from("custom-config.yaml")));
-
-        match args.command {
-            Command::Quality { matrix, metrics } => {
-                assert_eq!(matrix, Some(PathBuf::from("analysis-matrix.json")));
-                assert_eq!(metrics.len(), 3);
-                assert!(metrics
-                    .iter()
-                    .any(|m| matches!(m, QualityMetric::Complexity)));
-                assert!(metrics.iter().any(|m| matches!(m, QualityMetric::Security)));
-                assert!(metrics
-                    .iter()
-                    .any(|m| matches!(m, QualityMetric::Maintainability)));
-            }
-            _ => panic!("Expected Quality command"),
-        }
-    }
-
-    #[test]
     fn test_debug_and_clone_traits() {
         let args = parse_args_success(&["csd", "init"]);
 
@@ -603,10 +485,5 @@ mod comprehensive_tests {
         let _cloned_format = output_format.clone();
         let debug_output = format!("{output_format:?}");
         assert!(debug_output.contains("Json"));
-
-        let quality_metric = QualityMetric::Complexity;
-        let _cloned_metric = quality_metric.clone();
-        let debug_metric = format!("{quality_metric:?}");
-        assert!(debug_metric.contains("Complexity"));
     }
 }

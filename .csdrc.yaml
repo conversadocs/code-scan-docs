@@ -9,13 +9,6 @@ output_dir: ".csd_output"
 # python_executable: "python3"    # For systems where python3 is preferred
 # python_executable: "/path/to/specific/python"  # For custom installations
 
-# LLM Configuration (Legacy - now configured per plugin)
-llm:
-  provider: "ollama"
-  base_url: "http://localhost:11434"
-  model: "deepseek-coder:6.7b"
-  timeout_seconds: 30
-
 # Scanning Configuration
 scanning:
   # Patterns to ignore during scanning (glob patterns)

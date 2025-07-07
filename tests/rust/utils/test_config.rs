@@ -4,8 +4,7 @@ use tokio::fs;
 
 // Import the modules we're testing
 use csd::utils::config::{
-    Config, FilePatterns, InputPluginConfig, LlmConfig, OutputPluginConfig, PluginSource,
-    ScanConfig,
+    Config, FilePatterns, InputPluginConfig, OutputPluginConfig, PluginSource, ScanConfig,
 };
 
 // Helper function to create a test config with custom plugins
@@ -54,9 +53,6 @@ fn test_config_default() {
 
     // Test basic properties
     assert_eq!(config.output_dir, "output");
-    assert_eq!(config.llm.provider, "ollama");
-    assert_eq!(config.llm.model, "deepseek-coder");
-    assert_eq!(config.llm.timeout_seconds, 30);
     assert_eq!(config.python_executable, None);
 
     // Test scanning defaults
@@ -133,8 +129,6 @@ async fn test_config_save_and_load() {
 
     // Verify the loaded config matches the original
     assert_eq!(loaded_config.output_dir, original_config.output_dir);
-    assert_eq!(loaded_config.llm.provider, original_config.llm.provider);
-    assert_eq!(loaded_config.llm.model, original_config.llm.model);
     assert_eq!(
         loaded_config.python_executable,
         original_config.python_executable
@@ -524,10 +518,6 @@ async fn test_config_roundtrip_preserves_data() {
     let original_config = Config {
         output_dir: "custom_output".to_string(),
         python_executable: Some("/usr/bin/python3.11".to_string()),
-        llm: LlmConfig {
-            timeout_seconds: 120,
-            ..Config::default().llm
-        },
         scanning: ScanConfig {
             max_file_size_mb: 25,
             ..Config::default().scanning
@@ -548,7 +538,6 @@ async fn test_config_roundtrip_preserves_data() {
         loaded_config.python_executable,
         Some("/usr/bin/python3.11".to_string())
     );
-    assert_eq!(loaded_config.llm.timeout_seconds, 120);
     assert_eq!(loaded_config.scanning.max_file_size_mb, 25);
 
     // Verify input plugin data is preserved

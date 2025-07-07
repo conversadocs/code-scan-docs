@@ -37,7 +37,6 @@ pub async fn handle_command(args: Args) -> Result<()> {
             no_llm,
             include_tests,
         } => handle_init(path, output, output_file, no_llm, include_tests, &config).await,
-        Command::Quality { matrix, metrics } => handle_quality(matrix, metrics, &config).await,
         Command::Docs {
             matrix,
             format,
@@ -140,61 +139,6 @@ async fn handle_init(
     }
 
     info!("Project initialized successfully. Use 'csd quality', 'csd docs', or other commands to analyze the matrix.");
-
-    Ok(())
-}
-
-/// Handles the `quality` command for code quality analysis.
-///
-/// Loads the project matrix and performs quality analysis using configured
-/// output plugins. Currently shows available plugins but full implementation
-/// is pending.
-///
-/// # Arguments
-///
-/// * `matrix` - Optional path to matrix file (defaults to `.csd_cache/matrix.json`)
-/// * `_metrics` - Quality metrics to analyze (not yet implemented)
-/// * `config` - Application configuration
-///
-/// # Returns
-///
-/// Returns `Ok(())` on successful analysis setup, or an error if matrix is missing.
-async fn handle_quality(
-    matrix: Option<PathBuf>,
-    _metrics: Vec<crate::cli::args::QualityMetric>,
-    config: &Config,
-) -> Result<()> {
-    debug!("Analyzing code quality...");
-
-    let matrix_path = matrix.unwrap_or_else(|| PathBuf::from(".csd_cache/matrix.json"));
-
-    if !matrix_path.exists() {
-        return Err(anyhow::anyhow!(
-            "Matrix file not found: {}. Run 'csd init' first.",
-            matrix_path.display()
-        ));
-    }
-
-    let quality_plugins = config.find_output_plugins_for_type("quality_report", "json");
-
-    if quality_plugins.is_empty() {
-        println!("No quality analysis plugins configured. Available output plugins:");
-        for (name, plugin_config) in config.get_enabled_output_plugins() {
-            println!(
-                "  {} - Types: {:?}, Formats: {:?}",
-                name, plugin_config.output_types, plugin_config.formats
-            );
-        }
-        return Ok(());
-    }
-
-    println!("Quality analysis functionality will be implemented using output plugins:");
-    for plugin_name in &quality_plugins {
-        println!("  - {plugin_name}");
-    }
-
-    // TODO: Implement quality analysis using output plugins
-    println!("Quality analysis functionality will be implemented here");
 
     Ok(())
 }
