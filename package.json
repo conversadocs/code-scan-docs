@@ -1,0 +1,38 @@
+{
+  "name": "code-scan-docs",
+  "version": "1.0.0",
+  "description": "`code-scan-docs` is an open-source tool that leverages AI to analyze your codebase, generating comprehensive documentation and conducting automated code reviews. By scanning your project's files and mapping their relationships, it provides valuable insights into dependencies and potential code issues, streamlining development and documentation workflows.",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs",
+    "test": "tests"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "prepare": "husky install",
+    "commit": "cz"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/conversadocs/code-scan-docs.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/conversadocs/code-scan-docs/issues"
+  },
+  "homepage": "https://github.com/conversadocs/code-scan-docs#readme",
+  "devDependencies": {
+    "@commitlint/cli": "^19.8.1",
+    "@commitlint/config-conventional": "^19.8.1",
+    "commitizen": "^4.3.1",
+    "cz-conventional-changelog": "^3.3.0",
+    "husky": "^8.0.0"
+  },
+  "config": {
+    "commitizen": {
+      "path": "./node_modules/cz-conventional-changelog"
+    }
+  }
+}

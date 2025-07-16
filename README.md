@@ -1,5 +1,7 @@
 # code-scan-docs
 
+![Commitlint](https://github.com/conversadocs/code-scan-docs/actions/workflows/commitlint.yml/badge.svg)
+
 `code-scan-docs` is an open-source tool that leverages AI to analyze your codebase, generating comprehensive documentation and conducting automated code reviews. By scanning your project's files and mapping their relationships, it provides valuable insights into dependencies and potential code issues, streamlining development and documentation workflows.
 
 ## Overview
