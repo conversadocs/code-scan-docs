@@ -74,6 +74,13 @@ pub enum Command {
         #[arg(long)]
         force: bool,
     },
+
+    /// Analyze a diff and categorize changes into conventional commit types.
+    ContextualChange {
+        /// Path to the diff file to analyze.
+        #[arg(value_name = "DIFF_PATH")]
+        diff_path: PathBuf,
+    },
 }
 
 /// Output format options for generated content.
