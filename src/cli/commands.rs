@@ -13,6 +13,7 @@ use crate::core::scanner::ProjectScanner;
 use crate::plugins::interface::{OutputPluginInput, OutputPluginInterface};
 use crate::plugins::manager::PluginManager;
 use crate::utils::config::Config;
+use crate::context;
 
 /// Main command dispatcher that routes CLI arguments to appropriate handlers.
 ///
@@ -44,6 +45,28 @@ pub async fn handle_command(args: Args) -> Result<()> {
         } => handle_docs(matrix, format, output_dir, &config).await,
         Command::Plugins { detailed } => handle_plugins(detailed, &config).await,
         Command::Config { force } => handle_config(force).await,
+        Command::ContextualChange { diff_path } => {
+            info!("Starting contextual change detection...");
+
+            let diff_content = std::fs::read_to_string(&diff_path)
+                .map_err(|e| anyhow::anyhow!("Failed to read diff file '{}': {}", diff_path.display(), e))?;
+
+            let types = context::categorize_diff(&diff_content);
+
+            if types.is_empty() {
+                warn!("No recognizable change types found. Defaulting to 'chore'.");
+                println!("- chore");
+            } else {
+                println!("Detected change types:");
+                for t in types {
+                    println!("- {}", t);
+                }
+            }
+
+            info!("Contextual change detection complete.");
+            Ok(())
+        }
+
     }
 }
 

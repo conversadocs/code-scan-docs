@@ -8,6 +8,7 @@ use log::{error, info};
 
 use csd::cli::args::Args;
 use csd::cli::commands;
+// use csd::context::categorize_diff; // <-- import detector
 
 /// Application entry point.
 ///
